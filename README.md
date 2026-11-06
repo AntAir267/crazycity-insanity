@@ -27,11 +27,11 @@ Games; Midtown Madness is a trademark of Microsoft.
 
 How it is checked: 97 scripted check runs (driving, crashes, traffic, trailers and a race) must
 give the same output bit for bit on every change (their SHA-256 sums are in
-`checks/expected.sha256`), and nearly a thousand automated checks cover the file formats, AI,
-sound, music, menus and network rules. The game itself has **not yet been play-tested widely**: expect rough edges, and
-please report anything that behaves differently from MM2 as an issue ("Behaves differently from
-MM2"; see [Contributing](CONTRIBUTING.md)).
-Windows and macOS have no native build yet; use the browser build there.
+`checks/expected.sha256`), and over a thousand automated checks cover the file formats, AI,
+sound, music, menus, network rules and the native game. The game itself has **not yet been
+play-tested widely**: expect rough edges, and please report anything that behaves differently from
+MM2 as an issue ("Behaves differently from MM2"; see [Contributing](CONTRIBUTING.md)). Windows and
+macOS have no native build yet; use the browser build there.
 
 ## Your MM2 files
 
