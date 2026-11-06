@@ -1,0 +1,22 @@
+#!/bin/sh
+# CrazyCity Insanity AppImage: starts the game (Electron) from the AppImage.
+HERE="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
+BIN="$HERE/usr/lib/crazycity-insanity/crazycity-insanity"
+
+# Chromium's sandbox: inside an AppImage only its user-namespace sandbox can work (the setuid
+# helper cannot be setuid on the AppImage's mount). Where the system does not let ordinary
+# programs make user namespaces (Ubuntu 24.04 and later restrict them through AppArmor), the game
+# runs without Chromium's sandbox; it shows only its own local page either way.
+# CCI_SANDBOX=off always turns the sandbox off.
+SANDBOX=""
+case " $* " in
+  *" --no-sandbox "*) ;;
+  *)
+    if [ "${CCI_SANDBOX:-auto}" = "off" ]; then
+      SANDBOX="--no-sandbox"
+    elif ! command -v unshare >/dev/null 2>&1 || ! unshare --user --map-root-user --mount --pid --net --fork true >/dev/null 2>&1; then
+      SANDBOX="--no-sandbox"
+    fi
+    ;;
+esac
+exec "$BIN" $SANDBOX "$@"

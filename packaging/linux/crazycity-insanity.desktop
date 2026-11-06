@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=CrazyCity Insanity
+GenericName=Driving game
+Comment=Drive the cities of your own Midtown Madness 2 files
+Exec=crazycity
+Icon=crazycity-insanity
+Terminal=false
+Categories=Game;
+StartupWMClass=crazycity-insanity

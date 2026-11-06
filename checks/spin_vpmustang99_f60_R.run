@@ -1,0 +1,10 @@
+# reverse and turn from rest, then forward with the same lock
+car vpmustang99
+world flat
+start 0 0 0 0
+paint 0
+frame 0.016666668
+seg 1
+seg 4 brake=1 steer=1
+seg 1
+seg 3 throttle=1 steer=1

@@ -1,0 +1,7 @@
+# drive-check.md standard run: flat; full throttle until 25 m/s (6 s), then 6 s full brake
+car vpbug
+world flat
+start 0 0 0 0
+paint 0
+seg 6.0 throttle=1
+seg 6.0 brake=1

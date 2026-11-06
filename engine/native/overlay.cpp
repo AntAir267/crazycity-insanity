@@ -1,0 +1,306 @@
+#include "native/overlay.h"
+
+#include "render/gl_util.h"
+
+namespace cc {
+namespace native {
+
+namespace {
+
+// Our own 5 x 7 font, ASCII 32 … 126: seven rows of five pixels (bit 4 = the left pixel).
+const uint8_t kFont[95][7] = {
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},  //  
+    {0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04},  // !
+    {0x0a, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00},  // "
+    {0x0a, 0x1f, 0x0a, 0x0a, 0x0a, 0x1f, 0x0a},  // #
+    {0x04, 0x0f, 0x14, 0x0e, 0x05, 0x1e, 0x04},  // $
+    {0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03},  // %
+    {0x0c, 0x12, 0x14, 0x08, 0x15, 0x12, 0x0d},  // &
+    {0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00},  // '
+    {0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02},  // (
+    {0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08},  // )
+    {0x00, 0x04, 0x15, 0x0e, 0x15, 0x04, 0x00},  // *
+    {0x00, 0x04, 0x04, 0x1f, 0x04, 0x04, 0x00},  // +
+    {0x00, 0x00, 0x00, 0x00, 0x0c, 0x04, 0x08},  // ,
+    {0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00},  // -
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x0c},  // .
+    {0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x00},  // /
+    {0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e},  // 0
+    {0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e},  // 1
+    {0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f},  // 2
+    {0x1f, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0e},  // 3
+    {0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02},  // 4
+    {0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e},  // 5
+    {0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e},  // 6
+    {0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08},  // 7
+    {0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e},  // 8
+    {0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c},  // 9
+    {0x00, 0x0c, 0x0c, 0x00, 0x0c, 0x0c, 0x00},  // :
+    {0x00, 0x0c, 0x0c, 0x00, 0x0c, 0x04, 0x08},  // ;
+    {0x02, 0x04, 0x08, 0x10, 0x08, 0x04, 0x02},  // <
+    {0x00, 0x00, 0x1f, 0x00, 0x1f, 0x00, 0x00},  // =
+    {0x08, 0x04, 0x02, 0x01, 0x02, 0x04, 0x08},  // >
+    {0x0e, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04},  // ?
+    {0x0e, 0x11, 0x01, 0x0d, 0x15, 0x15, 0x0e},  // @
+    {0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11},  // A
+    {0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e},  // B
+    {0x0e, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0e},  // C
+    {0x1c, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1c},  // D
+    {0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f},  // E
+    {0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10},  // F
+    {0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0f},  // G
+    {0x11, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11},  // H
+    {0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e},  // I
+    {0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0c},  // J
+    {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11},  // K
+    {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f},  // L
+    {0x11, 0x1b, 0x15, 0x15, 0x11, 0x11, 0x11},  // M
+    {0x11, 0x11, 0x19, 0x15, 0x13, 0x11, 0x11},  // N
+    {0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e},  // O
+    {0x1e, 0x11, 0x11, 0x1e, 0x10, 0x10, 0x10},  // P
+    {0x0e, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0d},  // Q
+    {0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11},  // R
+    {0x0f, 0x10, 0x10, 0x0e, 0x01, 0x01, 0x1e},  // S
+    {0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},  // T
+    {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e},  // U
+    {0x11, 0x11, 0x11, 0x11, 0x11, 0x0a, 0x04},  // V
+    {0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0a},  // W
+    {0x11, 0x11, 0x0a, 0x04, 0x0a, 0x11, 0x11},  // X
+    {0x11, 0x11, 0x0a, 0x04, 0x04, 0x04, 0x04},  // Y
+    {0x1f, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1f},  // Z
+    {0x0e, 0x08, 0x08, 0x08, 0x08, 0x08, 0x0e},  // [
+    {0x00, 0x10, 0x08, 0x04, 0x02, 0x01, 0x00},  // backslash
+    {0x0e, 0x02, 0x02, 0x02, 0x02, 0x02, 0x0e},  // ]
+    {0x04, 0x0a, 0x11, 0x00, 0x00, 0x00, 0x00},  // ^
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f},  // _
+    {0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00},  // `
+    {0x00, 0x00, 0x0e, 0x01, 0x0f, 0x11, 0x0f},  // a
+    {0x10, 0x10, 0x16, 0x19, 0x11, 0x11, 0x1e},  // b
+    {0x00, 0x00, 0x0e, 0x10, 0x10, 0x11, 0x0e},  // c
+    {0x01, 0x01, 0x0d, 0x13, 0x11, 0x11, 0x0f},  // d
+    {0x00, 0x00, 0x0e, 0x11, 0x1f, 0x10, 0x0e},  // e
+    {0x06, 0x09, 0x08, 0x1c, 0x08, 0x08, 0x08},  // f
+    {0x00, 0x0f, 0x11, 0x11, 0x0f, 0x01, 0x0e},  // g
+    {0x10, 0x10, 0x16, 0x19, 0x11, 0x11, 0x11},  // h
+    {0x04, 0x00, 0x0c, 0x04, 0x04, 0x04, 0x0e},  // i
+    {0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x0c},  // j
+    {0x10, 0x10, 0x12, 0x14, 0x18, 0x14, 0x12},  // k
+    {0x0c, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e},  // l
+    {0x00, 0x00, 0x1a, 0x15, 0x15, 0x11, 0x11},  // m
+    {0x00, 0x00, 0x16, 0x19, 0x11, 0x11, 0x11},  // n
+    {0x00, 0x00, 0x0e, 0x11, 0x11, 0x11, 0x0e},  // o
+    {0x00, 0x00, 0x1e, 0x11, 0x1e, 0x10, 0x10},  // p
+    {0x00, 0x00, 0x0d, 0x13, 0x0f, 0x01, 0x01},  // q
+    {0x00, 0x00, 0x16, 0x19, 0x10, 0x10, 0x10},  // r
+    {0x00, 0x00, 0x0e, 0x10, 0x0e, 0x01, 0x1e},  // s
+    {0x08, 0x08, 0x1c, 0x08, 0x08, 0x09, 0x06},  // t
+    {0x00, 0x00, 0x11, 0x11, 0x11, 0x13, 0x0d},  // u
+    {0x00, 0x00, 0x11, 0x11, 0x11, 0x0a, 0x04},  // v
+    {0x00, 0x00, 0x11, 0x11, 0x15, 0x15, 0x0a},  // w
+    {0x00, 0x00, 0x11, 0x0a, 0x04, 0x0a, 0x11},  // x
+    {0x00, 0x00, 0x11, 0x11, 0x0f, 0x01, 0x0e},  // y
+    {0x00, 0x00, 0x1f, 0x02, 0x04, 0x08, 0x1f},  // z
+    {0x02, 0x04, 0x04, 0x08, 0x04, 0x04, 0x02},  // {
+    {0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},  // |
+    {0x08, 0x04, 0x04, 0x02, 0x04, 0x04, 0x08},  // }
+    {0x00, 0x00, 0x08, 0x15, 0x02, 0x00, 0x00},  // ~
+};
+
+const char* kVs = R"(#version 300 es
+in vec2 aPos;
+in vec2 aUv;
+in vec4 aColor;
+uniform vec2 uScreen;
+out vec2 vUv;
+out vec4 vColor;
+void main() {
+    vUv = aUv;
+    vColor = aColor;
+    gl_Position = vec4(aPos.x / uScreen.x * 2.0 - 1.0, 1.0 - aPos.y / uScreen.y * 2.0, 0.0, 1.0);
+}
+)";
+
+const char* kFs = R"(#version 300 es
+precision mediump float;
+in vec2 vUv;
+in vec4 vColor;
+uniform sampler2D uFont;
+out vec4 outColor;
+void main() {
+    float a = vUv.x < 0.0 ? 1.0 : texture(uFont, vUv).r;
+    outColor = vec4(vColor.rgb, vColor.a * a);
+}
+)";
+
+// The atlas: 16 × 6 cells of 6 × 9 texels (the glyph's 5 × 7 at the cell's top-left, one texel in).
+constexpr int kAtlasCols = 16, kAtlasRows = 6;
+constexpr int kAtlasW = kAtlasCols * Overlay::kCellW, kAtlasH = kAtlasRows * Overlay::kCellH;
+
+}  // namespace
+
+Overlay::~Overlay() {
+    // The GL objects go with the context.
+}
+
+bool Overlay::init() {
+    prog_ = buildProgram("overlay", kVs, kFs);
+    if (!prog_) return false;
+    screenLoc_ = glGetUniformLocation(prog_, "uScreen");
+    fontLoc_ = glGetUniformLocation(prog_, "uFont");
+    std::vector<uint8_t> atlas(size_t(kAtlasW) * kAtlasH, 0);
+    for (int c = 0; c < 95; ++c) {
+        const int cx = (c % kAtlasCols) * kCellW, cy = (c / kAtlasCols) * kCellH;
+        for (int r = 0; r < 7; ++r)
+            for (int b = 0; b < 5; ++b)
+                if (kFont[c][r] & (1 << (4 - b))) atlas[size_t(cy + r) * kAtlasW + size_t(cx + b)] = 255;
+    }
+    GLint prevTex = 0, prevAlign = 4;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlign);
+    glGenTextures(1, &tex_);
+    glBindTexture(GL_TEXTURE_2D, tex_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, kAtlasW, kAtlasH, 0, GL_RED, GL_UNSIGNED_BYTE, atlas.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlign);
+    glBindTexture(GL_TEXTURE_2D, GLuint(prevTex));
+
+    GLint prevVao = 0, prevBuf = 0;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+    glGenVertexArrays(1, &vao_);
+    glGenBuffers(1, &vbo_);
+    glBindVertexArray(vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    const GLint pos = glGetAttribLocation(prog_, "aPos"), uv = glGetAttribLocation(prog_, "aUv"),
+                col = glGetAttribLocation(prog_, "aColor");
+    const GLsizei stride = 8 * sizeof(float);
+    if (pos >= 0) {
+        glEnableVertexAttribArray(GLuint(pos));
+        glVertexAttribPointer(GLuint(pos), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+    }
+    if (uv >= 0) {
+        glEnableVertexAttribArray(GLuint(uv));
+        glVertexAttribPointer(GLuint(uv), 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(2 * sizeof(float)));
+    }
+    if (col >= 0) {
+        glEnableVertexAttribArray(GLuint(col));
+        glVertexAttribPointer(GLuint(col), 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(4 * sizeof(float)));
+    }
+    glBindVertexArray(GLuint(prevVao));
+    glBindBuffer(GL_ARRAY_BUFFER, GLuint(prevBuf));
+    return true;
+}
+
+void Overlay::begin(int w, int h) {
+    w_ = w > 0 ? w : 1;
+    h_ = h > 0 ? h : 1;
+    v_.clear();
+}
+
+void Overlay::quad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, uint32_t rgba) {
+    const float r = float((rgba >> 0) & 255) / 255.0f, g = float((rgba >> 8) & 255) / 255.0f,
+                b = float((rgba >> 16) & 255) / 255.0f, a = float((rgba >> 24) & 255) / 255.0f;
+    const float q[6][4] = {{x0, y0, u0, v0}, {x1, y0, u1, v0}, {x1, y1, u1, v1},
+                           {x0, y0, u0, v0}, {x1, y1, u1, v1}, {x0, y1, u0, v1}};
+    for (const auto& p : q) {
+        v_.insert(v_.end(), {p[0], p[1], p[2], p[3], r, g, b, a});
+    }
+}
+
+void Overlay::box(float x, float y, float w, float h, uint32_t rgba) { quad(x, y, x + w, y + h, -1, -1, -1, -1, rgba); }
+
+void Overlay::text(float x, float y, const std::string& s, uint32_t rgba, int scale) {
+    const float px = float(scale > 0 ? scale : 1);
+    float cx = x, cy = y;
+    for (unsigned char ch : s) {
+        if (ch == '\n') {
+            cx = x;
+            cy += kCellH * px;
+            continue;
+        }
+        int c = (ch >= 32 && ch < 127) ? ch - 32 : '?' - 32;
+        if (c != 0) {
+            const float u0 = float((c % kAtlasCols) * kCellW) / kAtlasW, v0 = float((c / kAtlasCols) * kCellH) / kAtlasH;
+            const float u1 = u0 + 5.0f / kAtlasW, v1 = v0 + 7.0f / kAtlasH;
+            // A one-pixel shadow, then the glyph.
+            quad(cx + px, cy + px, cx + 6 * px, cy + 8 * px, u0, v0, u1, v1, 0xC0000000u);
+            quad(cx, cy, cx + 5 * px, cy + 7 * px, u0, v0, u1, v1, rgba);
+        }
+        cx += kCellW * px;
+    }
+}
+
+float Overlay::panel(float x, float y, const std::vector<std::string>& lines, uint32_t rgba, int scale, uint32_t bg) {
+    if (lines.empty()) return 0;
+    size_t longest = 0;
+    for (const std::string& l : lines) longest = l.size() > longest ? l.size() : longest;
+    const float px = float(scale);
+    const float pad = 4 * px;
+    const float w = float(longest) * kCellW * px + 2 * pad, h = float(lines.size()) * kCellH * px + 2 * pad - 2 * px;
+    if (bg) box(x, y, w, h, bg);
+    float ly = y + pad;
+    for (const std::string& l : lines) {
+        text(x + pad, ly, l, rgba, scale);
+        ly += kCellH * px;
+    }
+    return h;
+}
+
+void Overlay::end() {
+    if (v_.empty() || !prog_) return;
+    // Keep the renderer's state as it was.
+    GLint prevProg = 0, prevVao = 0, prevBuf = 0, prevTex = 0, prevActive = 0, vp[4] = {0, 0, 0, 0};
+    GLint bSrcRgb = 0, bDstRgb = 0, bSrcA = 0, bDstA = 0;
+    GLboolean depthMask = GL_TRUE;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    glGetIntegerv(GL_VIEWPORT, vp);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &bSrcRgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &bDstRgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &bSrcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &bDstA);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    const GLboolean blend = glIsEnabled(GL_BLEND), depth = glIsEnabled(GL_DEPTH_TEST), cull = glIsEnabled(GL_CULL_FACE),
+                    scissor = glIsEnabled(GL_SCISSOR_TEST);
+
+    glViewport(0, 0, w_, h_);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(prog_);
+    glUniform2f(screenLoc_, float(w_), float(h_));
+    glUniform1i(fontLoc_, 0);
+    glBindTexture(GL_TEXTURE_2D, tex_);
+    glBindVertexArray(vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(v_.size() * sizeof(float)), v_.data(), GL_STREAM_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, GLsizei(v_.size() / 8));
+
+    glBindVertexArray(GLuint(prevVao));
+    glBindBuffer(GL_ARRAY_BUFFER, GLuint(prevBuf));
+    glBindTexture(GL_TEXTURE_2D, GLuint(prevTex));
+    glActiveTexture(GLenum(prevActive));
+    glUseProgram(GLuint(prevProg));
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glBlendFuncSeparate(GLenum(bSrcRgb), GLenum(bDstRgb), GLenum(bSrcA), GLenum(bDstA));
+    glDepthMask(depthMask);
+    if (!blend) glDisable(GL_BLEND);
+    if (depth) glEnable(GL_DEPTH_TEST);
+    if (cull) glEnable(GL_CULL_FACE);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    v_.clear();
+}
+
+}  // namespace native
+}  // namespace cc

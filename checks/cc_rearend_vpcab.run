@@ -1,0 +1,8 @@
+# drive-check.md standard car-to-car run
+car vpcab
+world flat
+start 0 0 0 0
+traffic va_sedans_s 0 0 -40 0 speed=0
+seg 1.0
+seg 5.0 throttle=1
+seg 4.0

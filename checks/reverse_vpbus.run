@@ -1,0 +1,7 @@
+# drive-check.md standard run: flat; 3 s brake (auto reverse); 3 s nothing
+car vpbus
+world flat
+start 0 0 0 0
+paint 0
+seg 3.0 brake=1
+seg 3.0

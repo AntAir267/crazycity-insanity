@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrazyCity Insanity</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Everything visible is drawn by the engine into the canvas; the page only hosts it. -->
+<canvas id="canvas" tabindex="0"></canvas>
+<div id="boot" class="boot"><div class="box"><div id="boot-title">Starting…</div><div id="boot-text"></div></div></div>
+<input type="file" id="pick-folder" webkitdirectory directory multiple hidden>
+<input type="file" id="pick-mods" accept=".ar,.AR" multiple hidden>
+<input type="file" id="pick-players" webkitdirectory directory multiple hidden>
+<input type="file" id="pick-gm" accept=".dls,.DLS,.sf2,.SF2" hidden>
+<script src="audio.js"></script>
+<script src="net.js"></script>
+<script src="app.js"></script>
+<script async src="cci.js"></script>
+</body>
+</html>

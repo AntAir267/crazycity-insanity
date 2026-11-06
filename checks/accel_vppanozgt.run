@@ -1,0 +1,7 @@
+# drive-check.md standard run: flat; 1 s idle; 25 s full throttle
+car vppanozgt
+world flat
+start 0 0 0 0
+paint 0
+seg 1.0
+seg 25.0 throttle=1

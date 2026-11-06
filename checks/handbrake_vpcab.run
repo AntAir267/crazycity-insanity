@@ -1,0 +1,8 @@
+# drive-check.md standard run: flat; 4 s throttle; 2 s steer +1 handbrake 1; 3 s nothing
+car vpcab
+world flat
+start 0 0 0 0
+paint 0
+seg 4.0 throttle=1
+seg 2.0 steer=1 handbrake=1
+seg 3.0

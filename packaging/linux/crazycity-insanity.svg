@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CrazyCity Insanity icon: an original drawing (a car racing into a night city). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#170f3d"/>
+      <stop offset="0.55" stop-color="#4a1f6e"/>
+      <stop offset="1" stop-color="#ff7a2f"/>
+    </linearGradient>
+    <linearGradient id="road" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3548"/>
+      <stop offset="1" stop-color="#1c1a24"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff5a4e"/>
+      <stop offset="1" stop-color="#b3172b"/>
+    </linearGradient>
+    <clipPath id="tile">
+      <rect x="8" y="8" width="240" height="240" rx="44"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect x="8" y="8" width="240" height="240" fill="url(#sky)"/>
+    <circle cx="186" cy="62" r="24" fill="#ffd166" opacity="0.95"/>
+    <!-- skyline -->
+    <g fill="#140c2c">
+      <rect x="8" y="104" width="30" height="60"/>
+      <rect x="34" y="82" width="26" height="82"/>
+      <rect x="58" y="112" width="22" height="52"/>
+      <rect x="78" y="70" width="20" height="94"/>
+      <rect x="96" y="96" width="26" height="68"/>
+      <rect x="134" y="88" width="24" height="76"/>
+      <rect x="156" y="108" width="20" height="56"/>
+      <rect x="174" y="76" width="28" height="88"/>
+      <rect x="200" y="100" width="22" height="64"/>
+      <rect x="220" y="90" width="28" height="74"/>
+    </g>
+    <g fill="#ffcf4d">
+      <rect x="40" y="92" width="5" height="6"/><rect x="50" y="104" width="5" height="6"/>
+      <rect x="83" y="80" width="4" height="6"/><rect x="90" y="96" width="4" height="6"/>
+      <rect x="101" y="108" width="5" height="6"/><rect x="140" y="98" width="5" height="6"/>
+      <rect x="148" y="118" width="5" height="6"/><rect x="180" y="86" width="5" height="6"/>
+      <rect x="190" y="102" width="5" height="6"/><rect x="226" y="100" width="5" height="6"/>
+      <rect x="14" y="116" width="5" height="6"/><rect x="206" y="112" width="4" height="6"/>
+    </g>
+    <!-- road -->
+    <path d="M118 164 L138 164 L248 248 L8 248 Z" fill="url(#road)"/>
+    <rect x="8" y="160" width="240" height="6" fill="#241d33"/>
+    <g fill="#ffd166">
+      <path d="M126.5 170 L129.5 170 L130.4 180 L125.6 180 Z"/>
+      <path d="M125 190 L131 190 L132.6 206 L123.4 206 Z"/>
+      <path d="M122.6 220 L133.4 220 L136 248 L120 248 Z"/>
+    </g>
+    <!-- the car, from behind -->
+    <path d="M80 214 Q80 178 104 172 L152 172 Q176 178 176 214 L176 232 L80 232 Z" fill="url(#body)"/>
+    <path d="M98 178 L158 178 L166 196 L90 196 Z" fill="#2b2140"/>
+    <rect x="86" y="206" width="22" height="9" rx="3" fill="#ffe08a"/>
+    <rect x="148" y="206" width="22" height="9" rx="3" fill="#ffe08a"/>
+    <rect x="114" y="216" width="28" height="8" rx="2" fill="#f4f1ea"/>
+    <rect x="76" y="230" width="22" height="16" rx="4" fill="#121016"/>
+    <rect x="158" y="230" width="22" height="16" rx="4" fill="#121016"/>
+  </g>
+</svg>

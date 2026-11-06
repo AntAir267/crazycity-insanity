@@ -1,0 +1,8 @@
+# drive-check.md standard car-to-car run
+car vpbug
+world flat
+start 0 0 0 0
+traffic va_sedans_s 0 0 -30 0 speed=0
+traffic va_compact_s 0 0 -34.0 0 speed=0
+seg 1.0
+seg 9.0 throttle=1

@@ -1,0 +1,8 @@
+# drive-check.md standard run: flat; manual gear 1 for 3 s, gear 2 for 3 s, gear 3 for 3 s (full throttle)
+car vp4x4
+world flat
+start 0 0 0 0
+paint 0
+seg 3.0 gear=1 throttle=1
+seg 3.0 gear=2 throttle=1
+seg 3.0 gear=3 throttle=1

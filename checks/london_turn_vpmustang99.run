@@ -1,0 +1,9 @@
+# drive-check.md standard city run
+car vpmustang99
+world london
+start -230.0 1.9 333.5 0
+paint 0
+seg 1.0
+seg 3.0 throttle=1
+seg 4.0 throttle=0.6 steer=1
+seg 5.0 throttle=1

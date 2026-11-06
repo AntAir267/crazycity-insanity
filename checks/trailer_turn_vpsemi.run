@@ -1,0 +1,9 @@
+# drive-check.md standard trailer run: flat; 1 s idle; 4 s throttle; 8 s throttle 0.6 + steer -1
+car vpsemi
+world flat
+start 0 0 0 0
+paint 0
+trailer on
+seg 1.0
+seg 4.0 throttle=1
+seg 8.0 throttle=0.6 steer=-1

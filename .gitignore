@@ -1,0 +1,7 @@
+orig/
+work/
+.venv/
+__pycache__/
+dist/
+build/
+third_party/

@@ -1,0 +1,7 @@
+# drive-check.md standard city run
+car vpbus
+world london
+start -230.0 1.9 333.5 90
+paint 0
+seg 1.0
+seg 12.0 throttle=1

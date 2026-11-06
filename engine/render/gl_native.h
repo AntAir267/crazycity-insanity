@@ -1,0 +1,274 @@
+// Native OpenGL ES 3.0: every ES 2.0 / 3.0 core entry point, loaded through the platform once the
+// context exists (no GL library at link time, so the same binary runs on any EGL, GLX or later
+// WGL driver). The pointers carry the usual names inside namespace cc, so the renderer's calls
+// read as in the browser build, where <GLES3/gl3.h> declares them directly.
+#pragma once
+
+#ifdef GL_GLES_PROTOTYPES
+#undef GL_GLES_PROTOTYPES
+#endif
+#define GL_GLES_PROTOTYPES 0
+#include <GLES3/gl3.h>
+
+#include <string>
+
+// The list (generated from the Khronos gl3.h: every GL_APICALL of the 2.0 and 3.0 sections).
+#define CC_GL_FUNCTIONS(X) \
+    X(PFNGLACTIVETEXTUREPROC, glActiveTexture) \
+    X(PFNGLATTACHSHADERPROC, glAttachShader) \
+    X(PFNGLBINDATTRIBLOCATIONPROC, glBindAttribLocation) \
+    X(PFNGLBINDBUFFERPROC, glBindBuffer) \
+    X(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer) \
+    X(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer) \
+    X(PFNGLBINDTEXTUREPROC, glBindTexture) \
+    X(PFNGLBLENDCOLORPROC, glBlendColor) \
+    X(PFNGLBLENDEQUATIONPROC, glBlendEquation) \
+    X(PFNGLBLENDEQUATIONSEPARATEPROC, glBlendEquationSeparate) \
+    X(PFNGLBLENDFUNCPROC, glBlendFunc) \
+    X(PFNGLBLENDFUNCSEPARATEPROC, glBlendFuncSeparate) \
+    X(PFNGLBUFFERDATAPROC, glBufferData) \
+    X(PFNGLBUFFERSUBDATAPROC, glBufferSubData) \
+    X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus) \
+    X(PFNGLCLEARPROC, glClear) \
+    X(PFNGLCLEARCOLORPROC, glClearColor) \
+    X(PFNGLCLEARDEPTHFPROC, glClearDepthf) \
+    X(PFNGLCLEARSTENCILPROC, glClearStencil) \
+    X(PFNGLCOLORMASKPROC, glColorMask) \
+    X(PFNGLCOMPILESHADERPROC, glCompileShader) \
+    X(PFNGLCOMPRESSEDTEXIMAGE2DPROC, glCompressedTexImage2D) \
+    X(PFNGLCOMPRESSEDTEXSUBIMAGE2DPROC, glCompressedTexSubImage2D) \
+    X(PFNGLCOPYTEXIMAGE2DPROC, glCopyTexImage2D) \
+    X(PFNGLCOPYTEXSUBIMAGE2DPROC, glCopyTexSubImage2D) \
+    X(PFNGLCREATEPROGRAMPROC, glCreateProgram) \
+    X(PFNGLCREATESHADERPROC, glCreateShader) \
+    X(PFNGLCULLFACEPROC, glCullFace) \
+    X(PFNGLDELETEBUFFERSPROC, glDeleteBuffers) \
+    X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers) \
+    X(PFNGLDELETEPROGRAMPROC, glDeleteProgram) \
+    X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers) \
+    X(PFNGLDELETESHADERPROC, glDeleteShader) \
+    X(PFNGLDELETETEXTURESPROC, glDeleteTextures) \
+    X(PFNGLDEPTHFUNCPROC, glDepthFunc) \
+    X(PFNGLDEPTHMASKPROC, glDepthMask) \
+    X(PFNGLDEPTHRANGEFPROC, glDepthRangef) \
+    X(PFNGLDETACHSHADERPROC, glDetachShader) \
+    X(PFNGLDISABLEPROC, glDisable) \
+    X(PFNGLDISABLEVERTEXATTRIBARRAYPROC, glDisableVertexAttribArray) \
+    X(PFNGLDRAWARRAYSPROC, glDrawArrays) \
+    X(PFNGLDRAWELEMENTSPROC, glDrawElements) \
+    X(PFNGLENABLEPROC, glEnable) \
+    X(PFNGLENABLEVERTEXATTRIBARRAYPROC, glEnableVertexAttribArray) \
+    X(PFNGLFINISHPROC, glFinish) \
+    X(PFNGLFLUSHPROC, glFlush) \
+    X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer) \
+    X(PFNGLFRAMEBUFFERTEXTURE2DPROC, glFramebufferTexture2D) \
+    X(PFNGLFRONTFACEPROC, glFrontFace) \
+    X(PFNGLGENBUFFERSPROC, glGenBuffers) \
+    X(PFNGLGENERATEMIPMAPPROC, glGenerateMipmap) \
+    X(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers) \
+    X(PFNGLGENRENDERBUFFERSPROC, glGenRenderbuffers) \
+    X(PFNGLGENTEXTURESPROC, glGenTextures) \
+    X(PFNGLGETACTIVEATTRIBPROC, glGetActiveAttrib) \
+    X(PFNGLGETACTIVEUNIFORMPROC, glGetActiveUniform) \
+    X(PFNGLGETATTACHEDSHADERSPROC, glGetAttachedShaders) \
+    X(PFNGLGETATTRIBLOCATIONPROC, glGetAttribLocation) \
+    X(PFNGLGETBOOLEANVPROC, glGetBooleanv) \
+    X(PFNGLGETBUFFERPARAMETERIVPROC, glGetBufferParameteriv) \
+    X(PFNGLGETERRORPROC, glGetError) \
+    X(PFNGLGETFLOATVPROC, glGetFloatv) \
+    X(PFNGLGETFRAMEBUFFERATTACHMENTPARAMETERIVPROC, glGetFramebufferAttachmentParameteriv) \
+    X(PFNGLGETINTEGERVPROC, glGetIntegerv) \
+    X(PFNGLGETPROGRAMIVPROC, glGetProgramiv) \
+    X(PFNGLGETPROGRAMINFOLOGPROC, glGetProgramInfoLog) \
+    X(PFNGLGETRENDERBUFFERPARAMETERIVPROC, glGetRenderbufferParameteriv) \
+    X(PFNGLGETSHADERIVPROC, glGetShaderiv) \
+    X(PFNGLGETSHADERINFOLOGPROC, glGetShaderInfoLog) \
+    X(PFNGLGETSHADERPRECISIONFORMATPROC, glGetShaderPrecisionFormat) \
+    X(PFNGLGETSHADERSOURCEPROC, glGetShaderSource) \
+    X(PFNGLGETSTRINGPROC, glGetString) \
+    X(PFNGLGETTEXPARAMETERFVPROC, glGetTexParameterfv) \
+    X(PFNGLGETTEXPARAMETERIVPROC, glGetTexParameteriv) \
+    X(PFNGLGETUNIFORMFVPROC, glGetUniformfv) \
+    X(PFNGLGETUNIFORMIVPROC, glGetUniformiv) \
+    X(PFNGLGETUNIFORMLOCATIONPROC, glGetUniformLocation) \
+    X(PFNGLGETVERTEXATTRIBFVPROC, glGetVertexAttribfv) \
+    X(PFNGLGETVERTEXATTRIBIVPROC, glGetVertexAttribiv) \
+    X(PFNGLGETVERTEXATTRIBPOINTERVPROC, glGetVertexAttribPointerv) \
+    X(PFNGLHINTPROC, glHint) \
+    X(PFNGLISBUFFERPROC, glIsBuffer) \
+    X(PFNGLISENABLEDPROC, glIsEnabled) \
+    X(PFNGLISFRAMEBUFFERPROC, glIsFramebuffer) \
+    X(PFNGLISPROGRAMPROC, glIsProgram) \
+    X(PFNGLISRENDERBUFFERPROC, glIsRenderbuffer) \
+    X(PFNGLISSHADERPROC, glIsShader) \
+    X(PFNGLISTEXTUREPROC, glIsTexture) \
+    X(PFNGLLINEWIDTHPROC, glLineWidth) \
+    X(PFNGLLINKPROGRAMPROC, glLinkProgram) \
+    X(PFNGLPIXELSTOREIPROC, glPixelStorei) \
+    X(PFNGLPOLYGONOFFSETPROC, glPolygonOffset) \
+    X(PFNGLREADPIXELSPROC, glReadPixels) \
+    X(PFNGLRELEASESHADERCOMPILERPROC, glReleaseShaderCompiler) \
+    X(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage) \
+    X(PFNGLSAMPLECOVERAGEPROC, glSampleCoverage) \
+    X(PFNGLSCISSORPROC, glScissor) \
+    X(PFNGLSHADERBINARYPROC, glShaderBinary) \
+    X(PFNGLSHADERSOURCEPROC, glShaderSource) \
+    X(PFNGLSTENCILFUNCPROC, glStencilFunc) \
+    X(PFNGLSTENCILFUNCSEPARATEPROC, glStencilFuncSeparate) \
+    X(PFNGLSTENCILMASKPROC, glStencilMask) \
+    X(PFNGLSTENCILMASKSEPARATEPROC, glStencilMaskSeparate) \
+    X(PFNGLSTENCILOPPROC, glStencilOp) \
+    X(PFNGLSTENCILOPSEPARATEPROC, glStencilOpSeparate) \
+    X(PFNGLTEXIMAGE2DPROC, glTexImage2D) \
+    X(PFNGLTEXPARAMETERFPROC, glTexParameterf) \
+    X(PFNGLTEXPARAMETERFVPROC, glTexParameterfv) \
+    X(PFNGLTEXPARAMETERIPROC, glTexParameteri) \
+    X(PFNGLTEXPARAMETERIVPROC, glTexParameteriv) \
+    X(PFNGLTEXSUBIMAGE2DPROC, glTexSubImage2D) \
+    X(PFNGLUNIFORM1FPROC, glUniform1f) \
+    X(PFNGLUNIFORM1FVPROC, glUniform1fv) \
+    X(PFNGLUNIFORM1IPROC, glUniform1i) \
+    X(PFNGLUNIFORM1IVPROC, glUniform1iv) \
+    X(PFNGLUNIFORM2FPROC, glUniform2f) \
+    X(PFNGLUNIFORM2FVPROC, glUniform2fv) \
+    X(PFNGLUNIFORM2IPROC, glUniform2i) \
+    X(PFNGLUNIFORM2IVPROC, glUniform2iv) \
+    X(PFNGLUNIFORM3FPROC, glUniform3f) \
+    X(PFNGLUNIFORM3FVPROC, glUniform3fv) \
+    X(PFNGLUNIFORM3IPROC, glUniform3i) \
+    X(PFNGLUNIFORM3IVPROC, glUniform3iv) \
+    X(PFNGLUNIFORM4FPROC, glUniform4f) \
+    X(PFNGLUNIFORM4FVPROC, glUniform4fv) \
+    X(PFNGLUNIFORM4IPROC, glUniform4i) \
+    X(PFNGLUNIFORM4IVPROC, glUniform4iv) \
+    X(PFNGLUNIFORMMATRIX2FVPROC, glUniformMatrix2fv) \
+    X(PFNGLUNIFORMMATRIX3FVPROC, glUniformMatrix3fv) \
+    X(PFNGLUNIFORMMATRIX4FVPROC, glUniformMatrix4fv) \
+    X(PFNGLUSEPROGRAMPROC, glUseProgram) \
+    X(PFNGLVALIDATEPROGRAMPROC, glValidateProgram) \
+    X(PFNGLVERTEXATTRIB1FPROC, glVertexAttrib1f) \
+    X(PFNGLVERTEXATTRIB1FVPROC, glVertexAttrib1fv) \
+    X(PFNGLVERTEXATTRIB2FPROC, glVertexAttrib2f) \
+    X(PFNGLVERTEXATTRIB2FVPROC, glVertexAttrib2fv) \
+    X(PFNGLVERTEXATTRIB3FPROC, glVertexAttrib3f) \
+    X(PFNGLVERTEXATTRIB3FVPROC, glVertexAttrib3fv) \
+    X(PFNGLVERTEXATTRIB4FPROC, glVertexAttrib4f) \
+    X(PFNGLVERTEXATTRIB4FVPROC, glVertexAttrib4fv) \
+    X(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer) \
+    X(PFNGLVIEWPORTPROC, glViewport) \
+    X(PFNGLREADBUFFERPROC, glReadBuffer) \
+    X(PFNGLDRAWRANGEELEMENTSPROC, glDrawRangeElements) \
+    X(PFNGLTEXIMAGE3DPROC, glTexImage3D) \
+    X(PFNGLTEXSUBIMAGE3DPROC, glTexSubImage3D) \
+    X(PFNGLCOPYTEXSUBIMAGE3DPROC, glCopyTexSubImage3D) \
+    X(PFNGLCOMPRESSEDTEXIMAGE3DPROC, glCompressedTexImage3D) \
+    X(PFNGLCOMPRESSEDTEXSUBIMAGE3DPROC, glCompressedTexSubImage3D) \
+    X(PFNGLGENQUERIESPROC, glGenQueries) \
+    X(PFNGLDELETEQUERIESPROC, glDeleteQueries) \
+    X(PFNGLISQUERYPROC, glIsQuery) \
+    X(PFNGLBEGINQUERYPROC, glBeginQuery) \
+    X(PFNGLENDQUERYPROC, glEndQuery) \
+    X(PFNGLGETQUERYIVPROC, glGetQueryiv) \
+    X(PFNGLGETQUERYOBJECTUIVPROC, glGetQueryObjectuiv) \
+    X(PFNGLUNMAPBUFFERPROC, glUnmapBuffer) \
+    X(PFNGLGETBUFFERPOINTERVPROC, glGetBufferPointerv) \
+    X(PFNGLDRAWBUFFERSPROC, glDrawBuffers) \
+    X(PFNGLUNIFORMMATRIX2X3FVPROC, glUniformMatrix2x3fv) \
+    X(PFNGLUNIFORMMATRIX3X2FVPROC, glUniformMatrix3x2fv) \
+    X(PFNGLUNIFORMMATRIX2X4FVPROC, glUniformMatrix2x4fv) \
+    X(PFNGLUNIFORMMATRIX4X2FVPROC, glUniformMatrix4x2fv) \
+    X(PFNGLUNIFORMMATRIX3X4FVPROC, glUniformMatrix3x4fv) \
+    X(PFNGLUNIFORMMATRIX4X3FVPROC, glUniformMatrix4x3fv) \
+    X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer) \
+    X(PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC, glRenderbufferStorageMultisample) \
+    X(PFNGLFRAMEBUFFERTEXTURELAYERPROC, glFramebufferTextureLayer) \
+    X(PFNGLMAPBUFFERRANGEPROC, glMapBufferRange) \
+    X(PFNGLFLUSHMAPPEDBUFFERRANGEPROC, glFlushMappedBufferRange) \
+    X(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray) \
+    X(PFNGLDELETEVERTEXARRAYSPROC, glDeleteVertexArrays) \
+    X(PFNGLGENVERTEXARRAYSPROC, glGenVertexArrays) \
+    X(PFNGLISVERTEXARRAYPROC, glIsVertexArray) \
+    X(PFNGLGETINTEGERI_VPROC, glGetIntegeri_v) \
+    X(PFNGLBEGINTRANSFORMFEEDBACKPROC, glBeginTransformFeedback) \
+    X(PFNGLENDTRANSFORMFEEDBACKPROC, glEndTransformFeedback) \
+    X(PFNGLBINDBUFFERRANGEPROC, glBindBufferRange) \
+    X(PFNGLBINDBUFFERBASEPROC, glBindBufferBase) \
+    X(PFNGLTRANSFORMFEEDBACKVARYINGSPROC, glTransformFeedbackVaryings) \
+    X(PFNGLGETTRANSFORMFEEDBACKVARYINGPROC, glGetTransformFeedbackVarying) \
+    X(PFNGLVERTEXATTRIBIPOINTERPROC, glVertexAttribIPointer) \
+    X(PFNGLGETVERTEXATTRIBIIVPROC, glGetVertexAttribIiv) \
+    X(PFNGLGETVERTEXATTRIBIUIVPROC, glGetVertexAttribIuiv) \
+    X(PFNGLVERTEXATTRIBI4IPROC, glVertexAttribI4i) \
+    X(PFNGLVERTEXATTRIBI4UIPROC, glVertexAttribI4ui) \
+    X(PFNGLVERTEXATTRIBI4IVPROC, glVertexAttribI4iv) \
+    X(PFNGLVERTEXATTRIBI4UIVPROC, glVertexAttribI4uiv) \
+    X(PFNGLGETUNIFORMUIVPROC, glGetUniformuiv) \
+    X(PFNGLGETFRAGDATALOCATIONPROC, glGetFragDataLocation) \
+    X(PFNGLUNIFORM1UIPROC, glUniform1ui) \
+    X(PFNGLUNIFORM2UIPROC, glUniform2ui) \
+    X(PFNGLUNIFORM3UIPROC, glUniform3ui) \
+    X(PFNGLUNIFORM4UIPROC, glUniform4ui) \
+    X(PFNGLUNIFORM1UIVPROC, glUniform1uiv) \
+    X(PFNGLUNIFORM2UIVPROC, glUniform2uiv) \
+    X(PFNGLUNIFORM3UIVPROC, glUniform3uiv) \
+    X(PFNGLUNIFORM4UIVPROC, glUniform4uiv) \
+    X(PFNGLCLEARBUFFERIVPROC, glClearBufferiv) \
+    X(PFNGLCLEARBUFFERUIVPROC, glClearBufferuiv) \
+    X(PFNGLCLEARBUFFERFVPROC, glClearBufferfv) \
+    X(PFNGLCLEARBUFFERFIPROC, glClearBufferfi) \
+    X(PFNGLGETSTRINGIPROC, glGetStringi) \
+    X(PFNGLCOPYBUFFERSUBDATAPROC, glCopyBufferSubData) \
+    X(PFNGLGETUNIFORMINDICESPROC, glGetUniformIndices) \
+    X(PFNGLGETACTIVEUNIFORMSIVPROC, glGetActiveUniformsiv) \
+    X(PFNGLGETUNIFORMBLOCKINDEXPROC, glGetUniformBlockIndex) \
+    X(PFNGLGETACTIVEUNIFORMBLOCKIVPROC, glGetActiveUniformBlockiv) \
+    X(PFNGLGETACTIVEUNIFORMBLOCKNAMEPROC, glGetActiveUniformBlockName) \
+    X(PFNGLUNIFORMBLOCKBINDINGPROC, glUniformBlockBinding) \
+    X(PFNGLDRAWARRAYSINSTANCEDPROC, glDrawArraysInstanced) \
+    X(PFNGLDRAWELEMENTSINSTANCEDPROC, glDrawElementsInstanced) \
+    X(PFNGLFENCESYNCPROC, glFenceSync) \
+    X(PFNGLISSYNCPROC, glIsSync) \
+    X(PFNGLDELETESYNCPROC, glDeleteSync) \
+    X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) \
+    X(PFNGLWAITSYNCPROC, glWaitSync) \
+    X(PFNGLGETINTEGER64VPROC, glGetInteger64v) \
+    X(PFNGLGETSYNCIVPROC, glGetSynciv) \
+    X(PFNGLGETINTEGER64I_VPROC, glGetInteger64i_v) \
+    X(PFNGLGETBUFFERPARAMETERI64VPROC, glGetBufferParameteri64v) \
+    X(PFNGLGENSAMPLERSPROC, glGenSamplers) \
+    X(PFNGLDELETESAMPLERSPROC, glDeleteSamplers) \
+    X(PFNGLISSAMPLERPROC, glIsSampler) \
+    X(PFNGLBINDSAMPLERPROC, glBindSampler) \
+    X(PFNGLSAMPLERPARAMETERIPROC, glSamplerParameteri) \
+    X(PFNGLSAMPLERPARAMETERIVPROC, glSamplerParameteriv) \
+    X(PFNGLSAMPLERPARAMETERFPROC, glSamplerParameterf) \
+    X(PFNGLSAMPLERPARAMETERFVPROC, glSamplerParameterfv) \
+    X(PFNGLGETSAMPLERPARAMETERIVPROC, glGetSamplerParameteriv) \
+    X(PFNGLGETSAMPLERPARAMETERFVPROC, glGetSamplerParameterfv) \
+    X(PFNGLVERTEXATTRIBDIVISORPROC, glVertexAttribDivisor) \
+    X(PFNGLBINDTRANSFORMFEEDBACKPROC, glBindTransformFeedback) \
+    X(PFNGLDELETETRANSFORMFEEDBACKSPROC, glDeleteTransformFeedbacks) \
+    X(PFNGLGENTRANSFORMFEEDBACKSPROC, glGenTransformFeedbacks) \
+    X(PFNGLISTRANSFORMFEEDBACKPROC, glIsTransformFeedback) \
+    X(PFNGLPAUSETRANSFORMFEEDBACKPROC, glPauseTransformFeedback) \
+    X(PFNGLRESUMETRANSFORMFEEDBACKPROC, glResumeTransformFeedback) \
+    X(PFNGLGETPROGRAMBINARYPROC, glGetProgramBinary) \
+    X(PFNGLPROGRAMBINARYPROC, glProgramBinary) \
+    X(PFNGLPROGRAMPARAMETERIPROC, glProgramParameteri) \
+    X(PFNGLINVALIDATEFRAMEBUFFERPROC, glInvalidateFramebuffer) \
+    X(PFNGLINVALIDATESUBFRAMEBUFFERPROC, glInvalidateSubFramebuffer) \
+    X(PFNGLTEXSTORAGE2DPROC, glTexStorage2D) \
+    X(PFNGLTEXSTORAGE3DPROC, glTexStorage3D) \
+    X(PFNGLGETINTERNALFORMATIVPROC, glGetInternalformativ)
+
+namespace cc {
+
+#define CC_GL_DECLARE(type, name) extern type name;
+CC_GL_FUNCTIONS(CC_GL_DECLARE)
+#undef CC_GL_DECLARE
+
+// Loads every entry point with `getProc` (SDL_GL_GetProcAddress); false with the missing names in
+// `missing` when the driver lacks one.
+bool loadGlFunctions(void* (*getProc)(const char*), std::string* missing);
+
+}  // namespace cc

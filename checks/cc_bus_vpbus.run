@@ -1,0 +1,7 @@
+# drive-check.md standard car-to-car run
+car vpbus
+world flat
+start 0 0 0 0
+traffic va_compact_s -32 0 -25 270 speed=8
+seg 1.0
+seg 9.0 throttle=1

@@ -1,0 +1,7 @@
+# drive-check.md standard run: flat; 4 s full throttle; 6 s throttle 0.6 + steer -1
+car vpmustang99
+world flat
+start 0 0 0 0
+paint 0
+seg 4.0 throttle=1
+seg 6.0 throttle=0.6 steer=-1

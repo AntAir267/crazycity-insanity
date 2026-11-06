@@ -1,0 +1,9 @@
+{
+  "name": "crazycity-insanity",
+  "productName": "CrazyCity Insanity",
+  "version": "0.1.0",
+  "description": "An original driving game on Midtown Madness 2's rules that plays with the player's own MM2 files",
+  "desktopName": "crazycity-insanity.desktop",
+  "main": "main.js",
+  "private": true
+}

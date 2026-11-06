@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CrazyCity Insanity app icon: our own drawing (a night skyline, a low moon and a road running
+     into the city, in the front end's slate and teal). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.55" stop-color="#1b2b44"/>
+      <stop offset="1" stop-color="#2c3f5c"/>
+    </linearGradient>
+    <linearGradient id="road" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2230"/>
+      <stop offset="1" stop-color="#0d121a"/>
+    </linearGradient>
+    <radialGradient id="moon" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2dd4bf" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="tile">
+      <rect x="16" y="16" width="480" height="480" rx="104"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect x="0" y="0" width="512" height="512" fill="url(#sky)"/>
+    <!-- the moon over the city -->
+    <circle cx="352" cy="176" r="74" fill="url(#moon)"/>
+    <!-- skyline -->
+    <path fill="#101827" d="M16 300 V214 h40 v-34 h34 v52 h26 V150 h46 v-28 h18 v28 h20 v150
+      h18 V196 h44 v-46 h30 v62 h28 v-40 h40 v58 h22 V160 h46 v24 h28 v76 h26 v40 Z"/>
+    <!-- lit windows -->
+    <g fill="#2dd4bf">
+      <rect x="128" y="168" width="12" height="12"/><rect x="148" y="168" width="12" height="12"/>
+      <rect x="128" y="196" width="12" height="12"/><rect x="168" y="224" width="12" height="12"/>
+      <rect x="148" y="252" width="12" height="12"/>
+      <rect x="262" y="172" width="10" height="12"/><rect x="262" y="228" width="10" height="12"/>
+      <rect x="420" y="180" width="12" height="12"/><rect x="440" y="208" width="12" height="12"/>
+      <rect x="420" y="236" width="12" height="12"/>
+    </g>
+    <g fill="#fbbf24">
+      <rect x="168" y="196" width="12" height="12"/><rect x="128" y="252" width="12" height="12"/>
+      <rect x="246" y="200" width="10" height="12"/><rect x="440" y="180" width="12" height="12"/>
+      <rect x="62" y="230" width="10" height="10"/>
+    </g>
+    <!-- ground -->
+    <rect x="0" y="300" width="512" height="212" fill="#0c131d"/>
+    <!-- the glow where the road meets the city -->
+    <ellipse cx="256" cy="304" rx="150" ry="34" fill="url(#glow)"/>
+    <!-- the road into the city -->
+    <path fill="url(#road)" d="M226 300 H286 L470 512 H42 Z"/>
+    <!-- glowing kerbs -->
+    <path d="M226 300 L42 512" stroke="#2dd4bf" stroke-width="14" stroke-linecap="round"/>
+    <path d="M286 300 L470 512" stroke="#2dd4bf" stroke-width="14" stroke-linecap="round"/>
+    <!-- centre dashes, growing toward the viewer -->
+    <g fill="#fbbf24">
+      <path d="M252 306 h8 l2 14 h-12 Z"/>
+      <path d="M248 334 h16 l4 30 h-24 Z"/>
+      <path d="M242 384 h28 l7 54 h-42 Z"/>
+      <path d="M233 462 h46 l9 60 h-64 Z"/>
+    </g>
+  </g>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="none" stroke="#2dd4bf" stroke-opacity="0.35" stroke-width="6"/>
+</svg>

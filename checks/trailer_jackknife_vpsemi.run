@@ -1,0 +1,11 @@
+# drive-check.md standard trailer run: flat; 1 s idle; 8 s throttle; 1 s throttle + steer 0.6;
+# 5 s brake + steer 1 + handbrake
+car vpsemi
+world flat
+start 0 0 0 0
+paint 0
+trailer on
+seg 1.0
+seg 8.0 throttle=1
+seg 1.0 throttle=1 steer=0.6
+seg 5.0 brake=1 steer=1 handbrake=1

@@ -1,0 +1,9 @@
+# drive-check.md standard car-to-car run
+car vpbug
+world flat
+start 0 0 0 0
+police vpcop 0 0 -80 180
+seg 1.0
+seg 9.0 throttle=1
+seg2 1.0
+seg2 9.0 throttle=1

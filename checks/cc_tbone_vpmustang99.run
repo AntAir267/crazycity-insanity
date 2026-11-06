@@ -1,0 +1,9 @@
+# drive-check.md standard car-to-car run
+car vpmustang99
+world flat
+start 0 0 0 0
+ai vpbug 33 0 -50 90
+seg 1.0
+seg 9.0 throttle=1
+seg2 1.0
+seg2 9.0 throttle=1

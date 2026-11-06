@@ -1,0 +1,9 @@
+# drive-check.md standard car-to-car run
+car vpauditt
+world flat
+start -2.4 0 0 0
+traffic va_taxi_f 0 0 40 0 speed=20
+seg 1.0
+seg 4.5 throttle=1
+seg 1.0 throttle=1 steer=0.4
+seg 3.5 throttle=0.5

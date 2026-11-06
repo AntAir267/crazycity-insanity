@@ -1,0 +1,22 @@
+# drive-check.md standard run: flat; 3 s throttle; then 8 x (1 s steer +1, 1 s steer -1) at throttle 0.7
+car vpauditt
+world flat
+start 0 0 0 0
+paint 0
+seg 3.0 throttle=1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1
+seg 1.0 throttle=0.7 steer=1
+seg 1.0 throttle=0.7 steer=-1

@@ -1,0 +1,5 @@
+# Opponent run (drive-check.md, "Opponent runs"): SF race0.aimap row 0 driven by the computer driver.
+car vpbug
+world sf
+opponent race0-a-0.opp 0.70 0 50.0 0.70 1 1 1 1 0 1.0
+seg 45.0

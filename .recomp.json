@@ -1,0 +1,14 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Midtown Madness 2",
+  "system": "PC (Windows)",
+  "type": "port",
+  "project": "CrazyCity Insanity",
+  "status": "playable",
+  "targets": ["Linux", "Browser"],
+  "approach": "New C++ engine that reproduces MM2's behaviour; 97 check runs pin the physics bit for bit; loads your own MM2 files and mods",
+  "maintainers": [{ "name": "AntAir267", "link": "https://github.com/AntAir267" }],
+  "help": ["Play-testing against the original game", "Force-feedback wheels", "A Windows build"],
+  "tags": ["racing", "open-world", "engine-remake", "mods", "multiplayer"],
+  "notes": "An original engine that plays by Midtown Madness 2's rules: cruise, checkpoint, blitz, circuit and crash course with opponents, traffic, cops, pedestrians, sound and music, and multiplayer (including cops and robbers). It reads the game files and mods from your own copy of MM2; no game files are included. Menus and HUD are its own design."
+}
