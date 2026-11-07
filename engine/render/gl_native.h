@@ -270,5 +270,8 @@ CC_GL_FUNCTIONS(CC_GL_DECLARE)
 // Loads every entry point with `getProc` (SDL_GL_GetProcAddress); false with the missing names in
 // `missing` when the driver lacks one.
 bool loadGlFunctions(void* (*getProc)(const char*), std::string* missing);
+// Before the context is destroyed: every entry point becomes a function that does nothing (and
+// returns 0), so no GL call can reach the driver once it is gone.
+void unloadGlFunctions();
 
 }  // namespace cc

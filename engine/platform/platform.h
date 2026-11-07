@@ -25,8 +25,10 @@ enum Key {
     KeyCount
 };
 
-// The game controller: the browser's first connected gamepad, natively the first SDL gamepad, or
-// failing that the first joystick or wheel SDL finds.
+// The game controller: every connected controller merged into one (any of them drives player 1,
+// whenever it is plugged in): a button is held when it is held on any, each axis comes from the
+// controller pushing it furthest from its rest, the hat from any; the kind is that of the
+// controller used last.
 // Gamepads use the Web "standard" layout (buttons 0 A, 1 B, 2 X, 3 Y, 4 LB, 5 RB, 6 LT, 7 RT,
 // 8 View/Back, 9 Start, 10/11 stick clicks, 12-15 d-pad up/down/left/right, 16 guide; axes 0/1
 // left stick, 2/3 right stick, 4/5 the left / right trigger as an axis, -1 released … +1 pressed).
@@ -41,9 +43,11 @@ struct GamepadState {
     float axis[kAxes] = {};
     float button[kButtons] = {};  // analog value 0..1
     bool pressed[kButtons] = {};  // went down this frame
-    int hat = 0;                  // the hat's directions: 1 up, 2 right, 4 down, 8 left
-    int axisCount = 0;            // axes and buttons the controller has
+    int hat = 0;                  // the hat's directions: 1 up, 2 right, 4 down, 8 left (a gamepad's d-pad too)
+    float rest[kAxes] = {};       // where each axis rests (a pedal at one end; sticks 0)
+    int axisCount = 0;            // axes and buttons the controller has (the most of any merged)
     int buttonCount = 0;
+    int controllers = 0;          // how many connected controllers are merged into this one
     bool feedback = false;        // the controller reports force feedback
     // The driver's control options (controls.md, players/<name>.cfg): the controller dead zone and
     // U = 1 / "Steering Sensitivity". Set by the game, never by the platform.
@@ -95,6 +99,7 @@ struct PlatformConfig {
     bool audio = true;               // open the audio output
     std::string audioDriver;         // SDL audio driver ("" = SDL's choice; "dummy" for tests)
     bool controllers = true;         // game controllers and force feedback
+    bool testControllersOnly = false;  // tests: only the test's virtual controllers (no real device is touched)
 };
 
 class Platform {
@@ -102,10 +107,11 @@ public:
     static void configure(const PlatformConfig& c);
 
     bool init(const char* title);
-    // Natively: stops the sound and lets go of the controllers. The window, the GL context and
-    // SDL stay until finalQuit(), which the native program registers with atexit() before the
-    // app (a static) exists, so the app's GL objects go while their context is still there.
+    // Natively: stops the sound and lets go of the controllers; the window stays.
     void shutdown();
+    // Natively, the last step before the program returns (after App::shutdown released the app's
+    // GPU objects): the GL context and the window go, and SDL quits. From then on every GL entry
+    // point does nothing. Idempotent; nothing is left for static destructors.
     static void finalQuit();
     // Processes pending events into `input`. Returns false when the app should quit.
     bool pollEvents(InputState& input);
@@ -167,7 +173,8 @@ public:
     // Game controllers: the buttons of the controller found at start-up (0 = none; the binding
     // table's defaults depend on it, controls.md), its name, and the force feedback.
     int startupControllerButtons() const { return startupButtons_; }
-    std::string controllerName() const;
+    std::string controllerName() const;  // the connected controllers' names
+    int controllerCount() const;
     // Force feedback (controls.md, "Force feedback"; the engine's FfDevice): MM2's four effects
     // 0 friction, 1 spring, 2 rumble, 3 jolt on a controller that reports force feedback; values in
     // MM2's units (0 … 10000, µs, hundredths of a degree). Stopped all when the window loses focus.
@@ -182,14 +189,16 @@ public:
     void hapticStopAll();
 
     // Tests: a virtual gamepad (axes and buttons in SDL's gamepad order) or wheel (raw axes,
-    // buttons and a hat) from SDL's virtual joystick driver, opened as the controller (`haptic`:
-    // reporting force feedback, its commands recorded instead of played); its axes (-1 … 1) and
-    // buttons; the recorded force-feedback commands since the last call.
-    bool openTestController(bool wheel, bool haptic = false);
-    void setTestAxis(int axis, float v);
-    void setTestButton(int button, bool down);
+    // buttons and a hat) plugged in through SDL's virtual joystick driver (found by the next
+    // frame's events like any controller; `haptic`: reporting force feedback, its commands
+    // recorded instead of played; returns a handle, 0 on failure); its axes (-1 … 1) and buttons;
+    // unplugging it; the recorded force-feedback commands since the last call ("c<n> <command>",
+    // n = the controller's order).
+    int addTestController(bool wheel, bool haptic = false);
+    void setTestAxis(int handle, int axis, float v);
+    void setTestButton(int handle, int button, bool down);
+    void removeTestController(int handle);
     std::vector<std::string> takeTestHapticLog();
-    void closeTestController();
     // Tests: a key event (SDL scancode) as if the player had pressed or released the key; the
     // pointer moved to (x, y) in window units, and the left button (0) or right (2) pressed or
     // released there (button -1: only the move).

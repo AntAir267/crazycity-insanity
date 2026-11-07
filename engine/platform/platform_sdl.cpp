@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #ifdef __EMSCRIPTEN__
@@ -190,10 +191,15 @@ int mapButton(Uint8 b) {
 
 #ifndef __EMSCRIPTEN__
 // ---------------------------------------------------------------------------------------------
-// Native game controllers: the first SDL gamepad (read in the standard layout), else the first
-// joystick or wheel (read as it is). Force feedback (controls.md, "Force feedback"): a controller
-// SDL reports as haptic gets MM2's four effects (friction, spring, rumble, jolt) when it is opened,
-// with its automatic centring off; the engine's force feedback drives them (drive/force_feedback.h).
+// Native game controllers. Every controller works, whenever it is plugged in (the shared game
+// goals): every joystick SDL reports is opened, at start-up and when it arrives later, and closed
+// when it goes; SDL gamepads are read in the standard layout, joysticks and wheels as they are.
+// The game reads them merged into one controller (MM2 has a single one, controls.md "The game
+// controller"; a handheld can show several devices for one pad, some of them silent): a button
+// is held when it is held on any, each axis comes from the controller pushing it furthest from
+// where it rests, the hat from any. Force feedback (controls.md, "Force feedback") goes to every
+// controller SDL reports as haptic: each gets MM2's four effects (friction, spring, rumble, jolt)
+// when it is opened, with its automatic centring off.
 
 struct Controller {
     SDL_Gamepad* pad = nullptr;
@@ -201,32 +207,72 @@ struct Controller {
     SDL_JoystickID id = 0;
     int kind = GamepadState::Gamepad;
     std::string name;
+    int tag = 0;  // the order it was opened in (log lines)
     SDL_Haptic* haptic = nullptr;
     SDL_HapticEffectID effect[4] = {-1, -1, -1, -1};  // friction, spring, rumble, jolt
-    bool playing[4] = {false, false, false, false};
-    Uint64 joltEnds = 0;      // ms: the 0.1 s jolt ends by itself
     bool fakeHaptic = false;  // tests: force-feedback commands recorded, no device
+    // This frame's reading, and where each axis rests (SDL's initial state; a gamepad's sticks 0,
+    // its triggers -1 as axes 4 / 5).
+    int axes = 0, buttons = 0;
+    float axis[GamepadState::kAxes] = {};
+    float rest[GamepadState::kAxes] = {};
+    bool restKnown[GamepadState::kAxes] = {};
+    float button[GamepadState::kButtons] = {};
+    int hat = 0;
+    Uint64 active = 0;  // ms of its last input beyond rest (the merged controller's kind)
 };
-Controller g_ctl;
+std::vector<std::unique_ptr<Controller>> g_ctls;
+int g_ctlSerial = 0;
+// The self-test's virtual controllers (`haptic`: force feedback recorded instead of played).
+struct TestDevice {
+    SDL_JoystickID id = 0;
+    SDL_Joystick* joy = nullptr;
+    bool haptic = false;
+};
+std::vector<TestDevice> g_testDevices;
+bool g_ffPlaying[4] = {false, false, false, false};
+Uint64 g_joltEnds = 0;                 // ms: the 0.1 s jolt ends by itself
 std::vector<std::string> g_hapticLog;  // tests
 
-void closeController() {
-    if (g_ctl.haptic) {
-        SDL_StopHapticEffects(g_ctl.haptic);
-        for (SDL_HapticEffectID id : g_ctl.effect)
-            if (id >= 0) SDL_DestroyHapticEffect(g_ctl.haptic, id);
-        SDL_CloseHaptic(g_ctl.haptic);
+Controller* findController(SDL_JoystickID id) {
+    for (auto& c : g_ctls)
+        if (c->id == id) return c.get();
+    return nullptr;
+}
+
+void releaseController(Controller& c) {
+    if (c.haptic) {
+        SDL_StopHapticEffects(c.haptic);
+        for (SDL_HapticEffectID id : c.effect)
+            if (id >= 0) SDL_DestroyHapticEffect(c.haptic, id);
+        SDL_CloseHaptic(c.haptic);
+        c.haptic = nullptr;
     }
-    if (g_ctl.pad) SDL_CloseGamepad(g_ctl.pad);
-    else if (g_ctl.joy) SDL_CloseJoystick(g_ctl.joy);
-    g_ctl = Controller();
+    if (c.pad) SDL_CloseGamepad(c.pad);
+    else if (c.joy) SDL_CloseJoystick(c.joy);
+    c.pad = nullptr;
+    c.joy = nullptr;
+}
+
+void closeController(SDL_JoystickID id) {
+    for (size_t i = 0; i < g_ctls.size(); ++i)
+        if (g_ctls[i]->id == id) {
+            logInfo("game controller removed: %s", g_ctls[i]->name.c_str());
+            releaseController(*g_ctls[i]);
+            g_ctls.erase(g_ctls.begin() + long(i));
+            return;
+        }
+}
+
+void closeAllControllers() {
+    for (auto& c : g_ctls) releaseController(*c);
+    g_ctls.clear();
 }
 
 // The effect templates (controls.md, "Driving SDL's haptic interface").
-SDL_HapticDirection steeringAxis(unsigned features) {
+SDL_HapticDirection steeringAxis() {
     SDL_HapticDirection d;
     SDL_zero(d);
-    (void)features;
     d.type = SDL_HAPTIC_STEERING_AXIS;
     return d;
 }
@@ -235,33 +281,33 @@ SDL_HapticEffect conditionEffect(Uint16 type, Sint16 coefficient) {
     SDL_HapticEffect e;
     SDL_zero(e);
     e.type = type;
-    e.condition.direction = steeringAxis(0);
+    e.condition.direction = steeringAxis();
     e.condition.length = SDL_HAPTIC_INFINITY;
     e.condition.right_sat[0] = e.condition.left_sat[0] = 0xFFFF;
     e.condition.right_coeff[0] = e.condition.left_coeff[0] = coefficient;
     return e;
 }
 
-Uint16 periodicType() {
-    const unsigned f = g_ctl.haptic ? SDL_GetHapticFeatures(g_ctl.haptic) : 0;
+Uint16 periodicType(SDL_Haptic* h) {
+    const unsigned f = h ? SDL_GetHapticFeatures(h) : 0;
     return (f & SDL_HAPTIC_SQUARE) ? SDL_HAPTIC_SQUARE : SDL_HAPTIC_SINE;
 }
 
-SDL_HapticEffect rumbleEffect(Uint16 periodMs, Sint16 magnitude) {
+SDL_HapticEffect rumbleEffect(SDL_Haptic* h, Uint16 periodMs, Sint16 magnitude) {
     SDL_HapticEffect e;
     SDL_zero(e);
-    e.type = periodicType();
-    e.periodic.direction = steeringAxis(0);
+    e.type = periodicType(h);
+    e.periodic.direction = steeringAxis();
     e.periodic.length = SDL_HAPTIC_INFINITY;
     e.periodic.period = periodMs;
     e.periodic.magnitude = magnitude;
     return e;
 }
 
-SDL_HapticEffect joltEffect(Sint16 magnitude, Sint32 direction) {
+SDL_HapticEffect joltEffect(SDL_Haptic* h, Sint16 magnitude, Sint32 direction) {
     SDL_HapticEffect e;
     SDL_zero(e);
-    e.type = periodicType();
+    e.type = periodicType(h);
     e.periodic.direction.type = SDL_HAPTIC_POLAR;
     e.periodic.direction.dir[0] = direction;
     e.periodic.length = 100;
@@ -272,64 +318,30 @@ SDL_HapticEffect joltEffect(Sint16 magnitude, Sint32 direction) {
 
 Sint16 force(int c) { return Sint16(std::clamp(c, 0, 10000) * 32767 / 10000); }
 
-void openHaptic() {
-    g_ctl.haptic = SDL_OpenHapticFromJoystick(g_ctl.joy);
-    if (!g_ctl.haptic) return;
-    const unsigned f = SDL_GetHapticFeatures(g_ctl.haptic);
-    if (f & SDL_HAPTIC_AUTOCENTER) SDL_SetHapticAutocenter(g_ctl.haptic, 0);  // as MM2, whatever the option says
+void openHaptic(Controller& c) {
+    c.haptic = SDL_OpenHapticFromJoystick(c.joy);
+    if (!c.haptic) return;
+    SDL_Haptic* h = c.haptic;
+    const unsigned f = SDL_GetHapticFeatures(h);
+    if (f & SDL_HAPTIC_AUTOCENTER) SDL_SetHapticAutocenter(h, 0);  // as MM2, whatever the option says
     SDL_HapticEffect e;
     if (f & SDL_HAPTIC_FRICTION) {
         e = conditionEffect(SDL_HAPTIC_FRICTION, 0);
-        g_ctl.effect[0] = SDL_CreateHapticEffect(g_ctl.haptic, &e);
+        c.effect[0] = SDL_CreateHapticEffect(h, &e);
     }
     if (f & SDL_HAPTIC_SPRING) {
         e = conditionEffect(SDL_HAPTIC_SPRING, 0);
-        g_ctl.effect[1] = SDL_CreateHapticEffect(g_ctl.haptic, &e);
+        c.effect[1] = SDL_CreateHapticEffect(h, &e);
     }
     if (f & (SDL_HAPTIC_SQUARE | SDL_HAPTIC_SINE)) {
-        e = rumbleEffect(5000, force(2000));
-        g_ctl.effect[2] = SDL_CreateHapticEffect(g_ctl.haptic, &e);
-        e = joltEffect(force(10000), 0);
-        g_ctl.effect[3] = SDL_CreateHapticEffect(g_ctl.haptic, &e);
+        e = rumbleEffect(h, 5000, force(2000));
+        c.effect[2] = SDL_CreateHapticEffect(h, &e);
+        e = joltEffect(h, force(10000), 0);
+        c.effect[3] = SDL_CreateHapticEffect(h, &e);
     }
-}
-
-bool openController(SDL_JoystickID id) {
-    closeController();
-    if (SDL_IsGamepad(id)) {
-        g_ctl.pad = SDL_OpenGamepad(id);
-        if (!g_ctl.pad) return false;
-        g_ctl.joy = SDL_GetGamepadJoystick(g_ctl.pad);
-        g_ctl.kind = GamepadState::Gamepad;
-        const char* n = SDL_GetGamepadName(g_ctl.pad);
-        g_ctl.name = n ? n : "gamepad";
-    } else {
-        g_ctl.joy = SDL_OpenJoystick(id);
-        if (!g_ctl.joy) return false;
-        g_ctl.kind = SDL_GetJoystickType(g_ctl.joy) == SDL_JOYSTICK_TYPE_WHEEL ? GamepadState::Wheel : GamepadState::Joystick;
-        const char* n = SDL_GetJoystickName(g_ctl.joy);
-        g_ctl.name = n ? n : "joystick";
-    }
-    g_ctl.id = id;
-    if (SDL_IsJoystickHaptic(g_ctl.joy)) openHaptic();
-    const char* kinds[] = {"gamepad", "joystick", "wheel"};
-    logInfo("game controller: %s (%s, %d buttons, %d axes%s)", g_ctl.name.c_str(), kinds[g_ctl.kind],
-            SDL_GetNumJoystickButtons(g_ctl.joy), SDL_GetNumJoystickAxes(g_ctl.joy), g_ctl.haptic ? ", force feedback" : "");
-    return true;
-}
-
-// The first controller SDL lists: a gamepad before any other joystick.
-bool openFirstController() {
-    int n = 0;
-    SDL_JoystickID* ids = SDL_GetGamepads(&n);
-    bool ok = false;
-    if (ids && n > 0) ok = openController(ids[0]);
-    SDL_free(ids);
-    if (ok) return true;
-    ids = SDL_GetJoysticks(&n);
-    if (ids && n > 0) ok = openController(ids[0]);
-    SDL_free(ids);
-    return ok;
+    // A controller that arrives while effects play joins them.
+    for (int k = 0; k < 3; ++k)
+        if (g_ffPlaying[k] && c.effect[k] >= 0) SDL_RunHapticEffect(h, c.effect[k], 1);
 }
 
 float axisValue(Sint16 v) {
@@ -337,24 +349,70 @@ float axisValue(Sint16 v) {
     return f < -1.0f ? -1.0f : (f > 1.0f ? 1.0f : f);
 }
 
-void pollController(GamepadState& g) {
-    constexpr int NA = GamepadState::kAxes, NB = GamepadState::kButtons;
-    g.connected = g_ctl.joy != nullptr && SDL_JoystickConnected(g_ctl.joy);
-    g.kind = g_ctl.kind;
-    g.feedback = g.connected && (g_ctl.haptic != nullptr || g_ctl.fakeHaptic);
-    g.hat = 0;
-    for (float& b : g.button) b = 0.0f;
-    for (float& a : g.axis) a = 0.0f;
-    if (!g.connected) {
-        g.buttonCount = g.axisCount = 0;
-        return;
+bool openController(SDL_JoystickID id) {
+    if (findController(id)) return true;
+    if (g_cfg.testControllersOnly) {
+        bool test = false;
+        for (const TestDevice& t : g_testDevices) test = test || t.id == id;
+        if (!test) return false;  // a real controller is left alone in tests
     }
-    if (g_ctl.pad) {
-        SDL_Gamepad* p = g_ctl.pad;
-        g.axis[0] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFTX));
-        g.axis[1] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFTY));
-        g.axis[2] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHTX));
-        g.axis[3] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHTY));
+    auto c = std::make_unique<Controller>();
+    if (SDL_IsGamepad(id)) {
+        c->pad = SDL_OpenGamepad(id);
+        if (!c->pad) return false;
+        c->joy = SDL_GetGamepadJoystick(c->pad);
+        c->kind = GamepadState::Gamepad;
+        const char* n = SDL_GetGamepadName(c->pad);
+        c->name = n ? n : "gamepad";
+        c->axes = 6;
+        c->buttons = 17;
+        c->rest[4] = c->rest[5] = -1.0f;  // the triggers as axes rest at -1
+        for (bool& k : c->restKnown) k = true;
+    } else {
+        c->joy = SDL_OpenJoystick(id);
+        if (!c->joy) return false;
+        c->kind = SDL_GetJoystickType(c->joy) == SDL_JOYSTICK_TYPE_WHEEL ? GamepadState::Wheel : GamepadState::Joystick;
+        const char* n = SDL_GetJoystickName(c->joy);
+        c->name = n ? n : "joystick";
+        c->axes = std::min(SDL_GetNumJoystickAxes(c->joy), int(GamepadState::kAxes));
+        c->buttons = std::min(SDL_GetNumJoystickButtons(c->joy), int(GamepadState::kButtons));
+        for (int a = 0; a < c->axes; ++a) {
+            Sint16 v = 0;
+            c->restKnown[a] = SDL_GetJoystickAxisInitialState(c->joy, a, &v);
+            c->rest[a] = axisValue(c->restKnown[a] ? v : SDL_GetJoystickAxis(c->joy, a));
+        }
+    }
+    c->id = id;
+    c->tag = ++g_ctlSerial;
+    for (const TestDevice& t : g_testDevices)
+        if (t.id == id) c->fakeHaptic = t.haptic;
+    if (SDL_IsJoystickHaptic(c->joy)) openHaptic(*c);
+    const char* kinds[] = {"gamepad", "joystick", "wheel"};
+    logInfo("game controller %d: %s (%s, %d buttons, %d axes%s)", c->tag, c->name.c_str(), kinds[c->kind],
+            SDL_GetNumJoystickButtons(c->joy), SDL_GetNumJoystickAxes(c->joy), c->haptic ? ", force feedback" : "");
+    g_ctls.push_back(std::move(c));
+    return true;
+}
+
+// Every controller SDL lists now.
+void openAllControllers() {
+    int n = 0;
+    SDL_JoystickID* ids = SDL_GetJoysticks(&n);
+    for (int i = 0; ids && i < n; ++i) openController(ids[i]);
+    SDL_free(ids);
+}
+
+void readController(Controller& c) {
+    for (float& v : c.axis) v = 0.0f;
+    for (float& v : c.button) v = 0.0f;
+    c.hat = 0;
+    if (!c.joy || !SDL_JoystickConnected(c.joy)) return;
+    if (c.pad) {
+        SDL_Gamepad* p = c.pad;
+        c.axis[0] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFTX));
+        c.axis[1] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFTY));
+        c.axis[2] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHTX));
+        c.axis[3] = axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHTY));
         static const SDL_GamepadButton order[17] = {
             SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
             SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_INVALID,
@@ -363,26 +421,84 @@ void pollController(GamepadState& g) {
             SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
             SDL_GAMEPAD_BUTTON_GUIDE};
         for (int b = 0; b < 17; ++b)
-            g.button[b] = order[b] == SDL_GAMEPAD_BUTTON_INVALID ? 0.0f : (SDL_GetGamepadButton(p, order[b]) ? 1.0f : 0.0f);
+            c.button[b] = order[b] == SDL_GAMEPAD_BUTTON_INVALID ? 0.0f : (SDL_GetGamepadButton(p, order[b]) ? 1.0f : 0.0f);
         // The triggers are analog (0 … 32767): buttons 6 / 7, and axes 4 / 5 from -1 to +1.
-        g.button[6] = std::max(0.0f, axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)));
-        g.button[7] = std::max(0.0f, axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)));
-        g.axis[4] = g.button[6] * 2.0f - 1.0f;
-        g.axis[5] = g.button[7] * 2.0f - 1.0f;
-        g.buttonCount = 17;
-        g.axisCount = 6;
-        return;
+        c.button[6] = std::max(0.0f, axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)));
+        c.button[7] = std::max(0.0f, axisValue(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)));
+        c.axis[4] = c.button[6] * 2.0f - 1.0f;
+        c.axis[5] = c.button[7] * 2.0f - 1.0f;
+        c.hat = (c.button[12] > 0.5f ? 1 : 0) | (c.button[15] > 0.5f ? 2 : 0) | (c.button[13] > 0.5f ? 4 : 0) |
+                (c.button[14] > 0.5f ? 8 : 0);
+    } else {
+        SDL_Joystick* j = c.joy;
+        for (int a = 0; a < c.axes; ++a) {
+            c.axis[a] = axisValue(SDL_GetJoystickAxis(j, a));
+            // Where it rests: SDL's initial state of the axis once the device has reported it.
+            Sint16 v = 0;
+            if (!c.restKnown[a] && SDL_GetJoystickAxisInitialState(j, a, &v)) {
+                c.rest[a] = axisValue(v);
+                c.restKnown[a] = true;
+            }
+        }
+        for (int b = 0; b < c.buttons; ++b) c.button[b] = SDL_GetJoystickButton(j, b) ? 1.0f : 0.0f;
+        if (SDL_GetNumJoystickHats(j) > 0) {
+            const Uint8 h = SDL_GetJoystickHat(j, 0);
+            c.hat = (h & SDL_HAT_UP ? 1 : 0) | (h & SDL_HAT_RIGHT ? 2 : 0) | (h & SDL_HAT_DOWN ? 4 : 0) | (h & SDL_HAT_LEFT ? 8 : 0);
+        }
     }
-    SDL_Joystick* j = g_ctl.joy;
-    const int na = SDL_GetNumJoystickAxes(j), nb = SDL_GetNumJoystickButtons(j);
-    for (int a = 0; a < NA && a < na; ++a) g.axis[a] = axisValue(SDL_GetJoystickAxis(j, a));
-    for (int b = 0; b < NB && b < nb; ++b) g.button[b] = SDL_GetJoystickButton(j, b) ? 1.0f : 0.0f;
-    if (SDL_GetNumJoystickHats(j) > 0) {
-        const Uint8 h = SDL_GetJoystickHat(j, 0);
-        g.hat = (h & SDL_HAT_UP ? 1 : 0) | (h & SDL_HAT_RIGHT ? 2 : 0) | (h & SDL_HAT_DOWN ? 4 : 0) | (h & SDL_HAT_LEFT ? 8 : 0);
+    bool moved = c.hat != 0;
+    for (int b = 0; b < c.buttons && !moved; ++b) moved = c.button[b] > 0.5f;
+    for (int a = 0; a < c.axes && !moved; ++a) moved = std::fabs(c.axis[a] - c.rest[a]) > 0.5f;
+    if (moved) c.active = SDL_GetTicks() + 1;
+}
+
+// The merged controller: buttons held on any, each axis from the controller pushing it furthest
+// from its rest (a tie: the one resting furthest from the middle, a pedal), the hat from any.
+void pollControllers(GamepadState& g) {
+    constexpr int NA = GamepadState::kAxes, NB = GamepadState::kButtons;
+    for (float& b : g.button) b = 0.0f;
+    for (float& a : g.axis) a = 0.0f;
+    for (float& r : g.rest) r = 0.0f;
+    g.hat = 0;
+    g.buttonCount = g.axisCount = 0;
+    g.feedback = false;
+    g.controllers = 0;
+    const Controller* kindFrom = nullptr;
+    for (auto& cp : g_ctls) {
+        Controller& c = *cp;
+        readController(c);
+        if (!c.joy || !SDL_JoystickConnected(c.joy)) continue;
+        ++g.controllers;
+        if (!kindFrom || c.active > kindFrom->active) kindFrom = &c;
+        for (int b = 0; b < NB; ++b) g.button[b] = std::max(g.button[b], c.button[b]);
+        g.hat |= c.hat;
+        g.buttonCount = std::max(g.buttonCount, c.buttons);
+        g.axisCount = std::max(g.axisCount, c.axes);
+        g.feedback = g.feedback || c.haptic != nullptr || c.fakeHaptic;
     }
-    g.buttonCount = nb;
-    g.axisCount = na;
+    g.connected = g.controllers > 0;
+    if (!g.connected) return;
+    g.kind = kindFrom ? kindFrom->kind : GamepadState::Gamepad;
+    for (int a = 0; a < NA; ++a) {
+        const Controller* best = nullptr;
+        float bestPush = -1.0f;
+        for (auto& cp : g_ctls) {
+            const Controller& c = *cp;
+            if (a >= c.axes || !c.joy || !SDL_JoystickConnected(c.joy)) continue;
+            const float push = std::fabs(c.axis[a] - c.rest[a]);
+            if (!best || push > bestPush + 1e-4f || (std::fabs(push - bestPush) <= 1e-4f && std::fabs(c.rest[a]) > std::fabs(best->rest[a]))) {
+                best = &c;
+                bestPush = push;
+            }
+        }
+        if (!best) continue;
+        g.axis[a] = best->axis[a];
+        // Where the axis rests: the controller resting furthest from the middle (a pedal).
+        float r = 0.0f;
+        for (auto& cp : g_ctls)
+            if (a < cp->axes && std::fabs(cp->rest[a]) > std::fabs(r)) r = cp->rest[a];
+        g.rest[a] = r;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -393,8 +509,7 @@ std::vector<float> g_audioBuf;
 SDL_Window* g_window = nullptr;
 SDL_GLContext g_context = nullptr;
 
-// The self-test's virtual controller.
-SDL_JoystickID g_testPad = 0;
+
 
 Platform::WindowState g_win;
 bool g_winChanged = false;
@@ -406,33 +521,49 @@ void pollGamepad(GamepadState& g) {
     for (int i = 0; i < NB; ++i) before[i] = g.button[i] > 0.5f;
     for (bool& p : g.pressed) p = false;
 #ifdef __EMSCRIPTEN__
+    // Every connected gamepad, merged as natively: buttons held on any, each axis from the pad
+    // pushing it furthest from its rest (standard layout: sticks 0, the triggers' axes -1).
+    constexpr int NA = GamepadState::kAxes;
+    for (float& b : g.button) b = 0.0f;
+    for (float& a : g.axis) a = 0.0f;
+    for (float& r : g.rest) r = 0.0f;
     g.connected = false;
     g.kind = GamepadState::Gamepad;
     g.hat = 0;
-    if (emscripten_sample_gamepad_data() != EMSCRIPTEN_RESULT_SUCCESS) return;
-    int n = emscripten_get_num_gamepads();
-    for (int i = 0; i < n; ++i) {
-        EmscriptenGamepadEvent st;
-        if (emscripten_get_gamepad_status(i, &st) != EMSCRIPTEN_RESULT_SUCCESS || !st.connected) continue;
-        g.connected = true;
-        for (int a = 0; a < GamepadState::kAxes; ++a) g.axis[a] = a < st.numAxes ? float(st.axis[a]) : 0.0f;
-        for (int b = 0; b < NB; ++b) g.button[b] = b < st.numButtons ? float(st.analogButton[b]) : 0.0f;
-        // The standard layout's triggers as axes 4 / 5 (-1 released … +1 pressed), as natively.
-        if (st.numAxes <= 4) {
-            g.axis[4] = g.button[6] * 2.0f - 1.0f;
-            g.axis[5] = g.button[7] * 2.0f - 1.0f;
+    g.buttonCount = g.axisCount = 0;
+    g.controllers = 0;
+    float push[NA];
+    for (float& p : push) p = -1.0f;
+    if (emscripten_sample_gamepad_data() == EMSCRIPTEN_RESULT_SUCCESS) {
+        const int n = emscripten_get_num_gamepads();
+        for (int i = 0; i < n; ++i) {
+            EmscriptenGamepadEvent st;
+            if (emscripten_get_gamepad_status(i, &st) != EMSCRIPTEN_RESULT_SUCCESS || !st.connected) continue;
+            g.connected = true;
+            ++g.controllers;
+            float ax[NA] = {}, rest[NA] = {};
+            for (int a = 0; a < NA && a < st.numAxes; ++a) ax[a] = float(st.axis[a]);
+            for (int b = 0; b < NB && b < st.numButtons; ++b) g.button[b] = std::max(g.button[b], float(st.analogButton[b]));
+            const int axes = st.numAxes <= 4 ? 6 : std::min(st.numAxes, NA);
+            if (st.numAxes <= 4) {
+                ax[4] = float(st.analogButton[6]) * 2.0f - 1.0f;
+                ax[5] = float(st.analogButton[7]) * 2.0f - 1.0f;
+                rest[4] = rest[5] = -1.0f;
+            }
+            for (int a = 0; a < axes; ++a) {
+                const float p = std::fabs(ax[a] - rest[a]);
+                if (p > push[a] + 1e-4f) {
+                    push[a] = p;
+                    g.axis[a] = ax[a];
+                }
+                if (std::fabs(rest[a]) > std::fabs(g.rest[a])) g.rest[a] = rest[a];
+            }
+            g.buttonCount = std::max(g.buttonCount, int(st.numButtons));
+            g.axisCount = std::max(g.axisCount, axes);
         }
-        g.buttonCount = st.numButtons;
-        g.axisCount = st.numAxes <= 4 ? 6 : st.numAxes;
-        break;
-    }
-    if (!g.connected) {
-        for (float& b : g.button) b = 0.0f;
-        for (float& a : g.axis) a = 0.0f;
-        g.buttonCount = g.axisCount = 0;
     }
 #else
-    pollController(g);
+    pollControllers(g);
 #endif
     for (int i = 0; i < NB; ++i) g.pressed[i] = !before[i] && g.button[i] > 0.5f;
 }
@@ -532,7 +663,10 @@ bool Platform::init(const char* title) {
         g_win.maximized = g_cfg.maximized;
     }
     if (g_cfg.controllers) {
-        if (openFirstController()) startupButtons_ = SDL_GetNumJoystickButtons(g_ctl.joy);
+        // Every controller connected now; the binding defaults' button count is the most any
+        // of them has (engine choice for MM2's "controller found at start-up", controls.md).
+        openAllControllers();
+        for (auto& c : g_ctls) startupButtons_ = std::max(startupButtons_, SDL_GetNumJoystickButtons(c->joy));
     }
 #endif
     return true;
@@ -544,14 +678,28 @@ void Platform::shutdown() {
         SDL_DestroyAudioStream(g_audio);
         g_audio = nullptr;
     }
-    closeController();
+    closeAllControllers();
     if (window_) SDL_HideWindow(static_cast<SDL_Window*>(window_));
 #endif
 }
 
 void Platform::finalQuit() {
 #ifndef __EMSCRIPTEN__
-    if (g_context) SDL_GL_DestroyContext(g_context);
+    static bool done = false;
+    if (done) return;
+    done = true;
+    if (g_audio) {
+        SDL_DestroyAudioStream(g_audio);
+        g_audio = nullptr;
+    }
+    closeAllControllers();
+    if (g_context) {
+        SDL_GL_MakeCurrent(g_window, g_context);
+        glFinish();
+        unloadGlFunctions();  // nothing reaches the driver after this
+        SDL_GL_MakeCurrent(g_window, nullptr);
+        SDL_GL_DestroyContext(g_context);
+    }
     if (g_window) SDL_DestroyWindow(g_window);
     g_context = nullptr;
     g_window = nullptr;
@@ -690,18 +838,11 @@ bool Platform::pollEvents(InputState& in) {
             }
             case SDL_EVENT_GAMEPAD_ADDED:
             case SDL_EVENT_JOYSTICK_ADDED:
-                if (g_cfg.controllers && !g_ctl.joy) {
-                    // A gamepad also arrives as a joystick: wait for its gamepad event.
-                    const SDL_JoystickID id = e.type == SDL_EVENT_GAMEPAD_ADDED ? e.gdevice.which : e.jdevice.which;
-                    if (e.type == SDL_EVENT_GAMEPAD_ADDED || !SDL_IsGamepad(id)) openController(id);
-                }
+                // A controller plugged in (or present at start): it joins the merged one at once.
+                if (g_cfg.controllers) openController(e.type == SDL_EVENT_GAMEPAD_ADDED ? e.gdevice.which : e.jdevice.which);
                 break;
             case SDL_EVENT_JOYSTICK_REMOVED:
-                if (g_ctl.joy && e.jdevice.which == g_ctl.id) {
-                    logInfo("game controller removed: %s", g_ctl.name.c_str());
-                    closeController();
-                    openFirstController();
-                }
+                closeController(e.jdevice.which);
                 break;
 #endif
             default: break;
@@ -997,17 +1138,34 @@ std::string Platform::controllerName() const {
 #ifdef __EMSCRIPTEN__
     return std::string();
 #else
-    return g_ctl.name;
+    std::string names;
+    for (auto& c : g_ctls) names += (names.empty() ? "" : " + ") + c->name;
+    return names;
 #endif
 }
 
-// ---- force feedback (the engine's FfDevice through drive_view.cpp)
+int Platform::controllerCount() const {
+#ifdef __EMSCRIPTEN__
+    return lastInput_ ? lastInput_->pad.controllers : 0;
+#else
+    return int(g_ctls.size());
+#endif
+}
+
+// ---- force feedback (the engine's FfDevice through drive_view.cpp), on every controller that
+// reports it
 
 #ifndef __EMSCRIPTEN__
 namespace {
 const char* kEffectNames[4] = {"friction", "spring", "rumble", "jolt"};
-void hapticLog(const std::string& line) {
-    if (g_hapticLog.size() < 4096) g_hapticLog.push_back(line);
+void hapticLog(const Controller& c, const std::string& line) {
+    if (g_hapticLog.size() < 8192) g_hapticLog.push_back("c" + std::to_string(c.tag) + " " + line);
+}
+// Calls `f` for each controller with force feedback (a recorded test device too).
+template <typename F>
+void eachHaptic(F f) {
+    for (auto& c : g_ctls)
+        if (c->haptic || c->fakeHaptic) f(*c);
 }
 }  // namespace
 #endif
@@ -1016,7 +1174,9 @@ bool Platform::hapticAvailable() const {
 #ifdef __EMSCRIPTEN__
     return false;
 #else
-    return g_ctl.joy && (g_ctl.haptic || g_ctl.fakeHaptic);
+    for (auto& c : g_ctls)
+        if (c->haptic || c->fakeHaptic) return true;
+    return false;
 #endif
 }
 
@@ -1026,18 +1186,20 @@ bool Platform::hapticPlaying(int e) const {
     return false;
 #else
     if (e < 0 || e > 3) return false;
-    if (e == 3 && g_ctl.playing[3] && SDL_GetTicks() >= g_ctl.joltEnds) g_ctl.playing[3] = false;
-    return g_ctl.playing[e];
+    if (e == 3 && g_ffPlaying[3] && SDL_GetTicks() >= g_joltEnds) g_ffPlaying[3] = false;
+    return g_ffPlaying[e];
 #endif
 }
 
 void Platform::hapticStart(int e) {
 #ifndef __EMSCRIPTEN__
     if (e < 0 || e > 3) return;
-    if (g_ctl.fakeHaptic) hapticLog(std::string("start ") + kEffectNames[e]);
-    else if (g_ctl.haptic && g_ctl.effect[e] >= 0) SDL_RunHapticEffect(g_ctl.haptic, g_ctl.effect[e], 1);
-    g_ctl.playing[e] = true;
-    if (e == 3) g_ctl.joltEnds = SDL_GetTicks() + 100;
+    eachHaptic([&](Controller& c) {
+        if (c.fakeHaptic) hapticLog(c, std::string("start ") + kEffectNames[e]);
+        else if (c.effect[e] >= 0) SDL_RunHapticEffect(c.haptic, c.effect[e], 1);
+    });
+    g_ffPlaying[e] = true;
+    if (e == 3) g_joltEnds = SDL_GetTicks() + 100;
 #else
     (void)e;
 #endif
@@ -1046,45 +1208,53 @@ void Platform::hapticStart(int e) {
 void Platform::hapticStop(int e) {
 #ifndef __EMSCRIPTEN__
     if (e < 0 || e > 3) return;
-    if (g_ctl.fakeHaptic) hapticLog(std::string("stop ") + kEffectNames[e]);
-    else if (g_ctl.haptic && g_ctl.effect[e] >= 0) SDL_StopHapticEffect(g_ctl.haptic, g_ctl.effect[e]);
-    g_ctl.playing[e] = false;
+    eachHaptic([&](Controller& c) {
+        if (c.fakeHaptic) hapticLog(c, std::string("stop ") + kEffectNames[e]);
+        else if (c.effect[e] >= 0) SDL_StopHapticEffect(c.haptic, c.effect[e]);
+    });
+    g_ffPlaying[e] = false;
 #else
     (void)e;
 #endif
 }
 
-void Platform::hapticFriction(int c) {
+void Platform::hapticFriction(int v) {
 #ifndef __EMSCRIPTEN__
-    if (g_ctl.fakeHaptic) hapticLog("friction " + std::to_string(c));
-    else if (g_ctl.haptic && g_ctl.effect[0] >= 0) {
-        SDL_HapticEffect e = conditionEffect(SDL_HAPTIC_FRICTION, force(c));
-        SDL_UpdateHapticEffect(g_ctl.haptic, g_ctl.effect[0], &e);
-    }
+    eachHaptic([&](Controller& c) {
+        if (c.fakeHaptic) hapticLog(c, "friction " + std::to_string(v));
+        else if (c.effect[0] >= 0) {
+            SDL_HapticEffect e = conditionEffect(SDL_HAPTIC_FRICTION, force(v));
+            SDL_UpdateHapticEffect(c.haptic, c.effect[0], &e);
+        }
+    });
 #else
-    (void)c;
+    (void)v;
 #endif
 }
 
-void Platform::hapticSpring(int c) {
+void Platform::hapticSpring(int v) {
 #ifndef __EMSCRIPTEN__
-    if (g_ctl.fakeHaptic) hapticLog("spring " + std::to_string(c));
-    else if (g_ctl.haptic && g_ctl.effect[1] >= 0) {
-        SDL_HapticEffect e = conditionEffect(SDL_HAPTIC_SPRING, force(c));
-        SDL_UpdateHapticEffect(g_ctl.haptic, g_ctl.effect[1], &e);
-    }
+    eachHaptic([&](Controller& c) {
+        if (c.fakeHaptic) hapticLog(c, "spring " + std::to_string(v));
+        else if (c.effect[1] >= 0) {
+            SDL_HapticEffect e = conditionEffect(SDL_HAPTIC_SPRING, force(v));
+            SDL_UpdateHapticEffect(c.haptic, c.effect[1], &e);
+        }
+    });
 #else
-    (void)c;
+    (void)v;
 #endif
 }
 
 void Platform::hapticRumble(int periodUs, int magnitude) {
 #ifndef __EMSCRIPTEN__
-    if (g_ctl.fakeHaptic) hapticLog("rumble " + std::to_string(periodUs) + " " + std::to_string(magnitude));
-    else if (g_ctl.haptic && g_ctl.effect[2] >= 0) {
-        SDL_HapticEffect e = rumbleEffect(Uint16(std::clamp(periodUs / 1000, 1, 65535)), force(magnitude));
-        SDL_UpdateHapticEffect(g_ctl.haptic, g_ctl.effect[2], &e);
-    }
+    eachHaptic([&](Controller& c) {
+        if (c.fakeHaptic) hapticLog(c, "rumble " + std::to_string(periodUs) + " " + std::to_string(magnitude));
+        else if (c.effect[2] >= 0) {
+            SDL_HapticEffect e = rumbleEffect(c.haptic, Uint16(std::clamp(periodUs / 1000, 1, 65535)), force(magnitude));
+            SDL_UpdateHapticEffect(c.haptic, c.effect[2], &e);
+        }
+    });
 #else
     (void)periodUs; (void)magnitude;
 #endif
@@ -1092,11 +1262,13 @@ void Platform::hapticRumble(int periodUs, int magnitude) {
 
 void Platform::hapticJolt(int strength, int direction) {
 #ifndef __EMSCRIPTEN__
-    if (g_ctl.fakeHaptic) hapticLog("jolt " + std::to_string(strength) + " " + std::to_string(direction));
-    else if (g_ctl.haptic && g_ctl.effect[3] >= 0) {
-        SDL_HapticEffect e = joltEffect(force(strength), direction);
-        SDL_UpdateHapticEffect(g_ctl.haptic, g_ctl.effect[3], &e);
-    }
+    eachHaptic([&](Controller& c) {
+        if (c.fakeHaptic) hapticLog(c, "jolt " + std::to_string(strength) + " " + std::to_string(direction));
+        else if (c.effect[3] >= 0) {
+            SDL_HapticEffect e = joltEffect(c.haptic, force(strength), direction);
+            SDL_UpdateHapticEffect(c.haptic, c.effect[3], &e);
+        }
+    });
     hapticStart(3);
 #else
     (void)strength; (void)direction;
@@ -1106,7 +1278,7 @@ void Platform::hapticJolt(int strength, int direction) {
 void Platform::hapticStopAll() {
 #ifndef __EMSCRIPTEN__
     for (int e = 0; e < 4; ++e)
-        if (g_ctl.playing[e]) hapticStop(e);
+        if (g_ffPlaying[e]) hapticStop(e);
 #endif
 }
 
@@ -1120,14 +1292,16 @@ std::vector<std::string> Platform::takeTestHapticLog() {
 #endif
 }
 
-bool Platform::openTestController(bool wheel, bool haptic) {
+// ---- test controllers (SDL's virtual joystick driver): plugged in by attaching them, so the
+// platform finds them through the same events as a real controller plugged in.
+
+int Platform::addTestController(bool wheel, bool haptic) {
 #ifdef __EMSCRIPTEN__
     (void)wheel;
     (void)haptic;
-    return false;
+    return 0;
 #else
-    closeTestController();
-    if (!SDL_WasInit(SDL_INIT_GAMEPAD) && !SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC)) return false;
+    if (!SDL_WasInit(SDL_INIT_GAMEPAD) && !SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC)) return 0;
     SDL_VirtualJoystickDesc d;
     SDL_INIT_INTERFACE(&d);
     if (wheel) {
@@ -1142,39 +1316,47 @@ bool Platform::openTestController(bool wheel, bool haptic) {
         d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
         d.name = "CrazyCity test gamepad";
     }
-    g_testPad = SDL_AttachVirtualJoystick(&d);
-    if (!g_testPad) return false;
-    SDL_UpdateJoysticks();
-    if (!openController(g_testPad)) return false;
-    g_ctl.fakeHaptic = haptic;
-    g_hapticLog.clear();
-    return true;
+    const SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
+    if (!id) return 0;
+    TestDevice t;
+    t.id = id;
+    t.joy = SDL_OpenJoystick(id);  // the test's own handle, for setting its values
+    t.haptic = haptic;
+    g_testDevices.push_back(t);
+    return int(id);
 #endif
 }
 
-void Platform::setTestAxis(int axis, float v) {
+void Platform::setTestAxis(int handle, int axis, float v) {
 #ifndef __EMSCRIPTEN__
-    if (g_ctl.joy && g_ctl.id == g_testPad)
-        SDL_SetJoystickVirtualAxis(g_ctl.joy, axis, Sint16(std::clamp(v, -1.0f, 1.0f) * (v < 0 ? 32768.0f : 32767.0f)));
+    for (const TestDevice& t : g_testDevices)
+        if (int(t.id) == handle && t.joy)
+            SDL_SetJoystickVirtualAxis(t.joy, axis, Sint16(std::clamp(v, -1.0f, 1.0f) * (v < 0 ? 32768.0f : 32767.0f)));
 #else
-    (void)axis; (void)v;
+    (void)handle; (void)axis; (void)v;
 #endif
 }
 
-void Platform::setTestButton(int button, bool down) {
+void Platform::setTestButton(int handle, int button, bool down) {
 #ifndef __EMSCRIPTEN__
-    if (g_ctl.joy && g_ctl.id == g_testPad) SDL_SetJoystickVirtualButton(g_ctl.joy, button, down);
+    for (const TestDevice& t : g_testDevices)
+        if (int(t.id) == handle && t.joy) SDL_SetJoystickVirtualButton(t.joy, button, down);
 #else
-    (void)button; (void)down;
+    (void)handle; (void)button; (void)down;
 #endif
 }
 
-void Platform::closeTestController() {
+void Platform::removeTestController(int handle) {
 #ifndef __EMSCRIPTEN__
-    if (!g_testPad) return;
-    if (g_ctl.id == g_testPad) closeController();
-    SDL_DetachVirtualJoystick(g_testPad);
-    g_testPad = 0;
+    for (size_t i = 0; i < g_testDevices.size(); ++i)
+        if (int(g_testDevices[i].id) == handle) {
+            if (g_testDevices[i].joy) SDL_CloseJoystick(g_testDevices[i].joy);
+            SDL_DetachVirtualJoystick(g_testDevices[i].id);  // unplugged: the platform hears of it
+            g_testDevices.erase(g_testDevices.begin() + long(i));
+            return;
+        }
+#else
+    (void)handle;
 #endif
 }
 

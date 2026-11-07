@@ -14,8 +14,11 @@
 //   steer the keyboard device. Engine choices kept beside the table: Esc, G or the gamepad's
 //   Start (when they have no binding) put the car back on its wheels, Ctrl+B detaches a trailer;
 //   a pedal bound to a button takes the button's analog value (triggers); a pedal bound to a whole
-//   axis (a wheel's separate pedals) reads 0 at the end it rested on when the controller was first
-//   read and 1 at the other end, without the dead zone (controls.md, "Pedals", engine choice).
+//   axis (a wheel's separate pedals) reads 0 at the end it rests on (the platform's rest of that
+//   axis) and 1 at the other end, without the dead zone (controls.md, "Pedals", engine choice).
+//   Beside the device in use the keyboard (or, beside the keyboard and mouse, the connected
+//   controller) works too (companionDevice; the shared game goals): its pedals and buttons add
+//   to the device's, and its steer keys steer while held.
 // - The viewer's Drive mode (no driver): the engine's own scheme below.
 //
 // Engine choices of the viewer scheme (controls.md leaves them to us): WASD drive like the arrow keys, so MM2's W
@@ -69,9 +72,16 @@ struct ControlBindings {
     // The device whose table is read now: the controller devices fall back to the keyboard while
     // no game controller is connected (controls.md).
     int effectiveDevice(const InputState& in) const;
+    // The device read beside it (engine choice: the keyboard keeps working while a controller is
+    // the device in use, and a connected controller while the keyboard or mouse is: the shared
+    // game goals): the keyboard beside the joystick, gamepad and wheel devices; beside the keyboard
+    // and mouse devices the connected controller's device by its kind (gamepad, joystick, wheel);
+    // -1 = none.
+    int companionDevice(const InputState& in) const;
     const ControlBinding& binding(const InputState& in, int action) const {
         return table[effectiveDevice(in) * ActionCount + action];
     }
+    const ControlBinding& bindingOn(int device, int action) const { return table[device * ActionCount + action]; }
     // An action's component value this frame ("The game controller", "What is read"; keys and
     // mouse buttons 0 or 1, the mouse axes by the pointer's place) and whether it is held
     // (value above 0.5).
@@ -94,13 +104,22 @@ float componentValue(const ControlBinding& b, const InputState& in, float deadZo
 // passes 0.75, once until it falls back (engine choice, controls.md).
 class ActionPresses {
 public:
-    bool pressed(const ControlBindings& c, const InputState& in, int action);
+    // The action's binding on `device` (0 … 4) went down this frame.
+    bool pressedOn(const ControlBindings& c, int device, const InputState& in, int action);
+    // On the device in use or on the one beside it.
+    bool pressed(const ControlBindings& c, const InputState& in, int action) {
+        const int d = c.effectiveDevice(in), k = c.companionDevice(in);
+        const bool a = pressedOn(c, d, in, action);
+        const bool b = k >= 0 && pressedOn(c, k, in, action);
+        return a || b;
+    }
     void clear() {
-        for (bool& l : latch_) l = false;
+        for (auto& row : latch_)
+            for (bool& l : row) l = false;
     }
 
 private:
-    bool latch_[ActionCount] = {};
+    bool latch_[5][ActionCount] = {};
 };
 
 struct ControlEvents {
@@ -140,7 +159,6 @@ public:
     void setBindings(const ControlBindings* b) {
         haveBindings_ = b != nullptr;
         if (b) bindings_ = *b;
-        restKnown_ = false;
         presses_.clear();
     }
     bool hasBindings() const { return haveBindings_; }
@@ -162,12 +180,13 @@ private:
     bool haveBindings_ = false;
     ControlBindings bindings_;
     ActionPresses presses_;
-    bool restKnown_ = false;  // the controller's axes at rest (whole-axis pedals)
-    float rest_[8] = {};
     // The joystick / wheel shaping's hold timer H and approach value q (shared by both devices).
     float holdH_ = 0.0f, approachQ_ = 0.0f;
     phys::DriverControls readBound(const InputState& in, float dt, ControlEvents& ev);
     float pedal(const ControlBinding& b, const InputState& in, bool throttle, int device) const;
+    // A device's own steering (gamepad: the smoothing toward its axis; joystick, wheel: the shaping;
+    // mouse: the pointer).
+    float steerByDevice(int device, const InputState& in, float dt);
     // The joystick (wheel = false) or wheel shaping with the approach mode, from the axis value x.
     float joystickSteer(float x, float dt, bool wheel, float U);
     // The mouse device's steering from the pointer's place p (0 … 1 across the window).

@@ -2,6 +2,7 @@
 // the side panel's calls (app/web_api.cpp).
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <string>
@@ -46,6 +47,10 @@ public:
     ~App();
 
     bool init();
+    // Natively, before the program ends: every GPU object the app holds is released while the GL
+    // context still exists (drive, city, car view, caches, the UI's and the renderer's programs);
+    // the app's destructor then does no GL work. Network sessions end first (netEnd). Idempotent.
+    void shutdown();
     void frame();
     // `n` frames of `dt` seconds at once (scripted checks; works while the page is hidden).
     void stepFrames(int n, float dt);
@@ -187,10 +192,9 @@ public:
     // The buttons of the game controller (the one found at start-up natively; the page's first
     // gamepad in a browser); 0 without one.
     const InputState& input() const { return input_; }
-    int gamepadButtons() const {
-        if (input_.pad.connected && input_.pad.buttonCount > 0) return input_.pad.buttonCount;
-        return platform_.startupControllerButtons();
-    }
+    // Engine choice for merged controllers: the most buttons of any controller connected at
+    // start-up or since.
+    int gamepadButtons() const { return std::max(padButtons_, platform_.startupControllerButtons()); }
 
 private:
     void buildCarList();
@@ -255,6 +259,7 @@ private:
     ui::Host* host_ = &defaultHost_;
     ui::Ui ui_;
     ui::GlBackend uiGl_;
+    int padButtons_ = 0;  // the most buttons any connected controller has had
     bool uiOk_ = false;
     std::unique_ptr<fe::Services> feServices_;
     std::unique_ptr<fe::FrontEnd> fe_;

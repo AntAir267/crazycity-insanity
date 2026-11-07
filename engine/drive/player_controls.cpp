@@ -16,11 +16,12 @@ float deadZone(float r, float dz) {
     return sgn(r) * (std::fabs(r) - dz) / (1.0f - dz);
 }
 
-// The hat's directions (1 up, 2 right, 4 down, 8 left): a gamepad's d-pad, else the first hat.
+// The hat's directions (1 up, 2 right, 4 down, 8 left): the merged hat (a gamepad's d-pad
+// included natively), and in the browser a standard gamepad's d-pad buttons.
 int hatOf(const GamepadState& p) {
     if (!p.connected) return 0;
     if (p.kind != GamepadState::Gamepad) return p.hat;
-    return (p.button[12] > 0.5f ? 1 : 0) | (p.button[15] > 0.5f ? 2 : 0) | (p.button[13] > 0.5f ? 4 : 0) |
+    return p.hat | (p.button[12] > 0.5f ? 1 : 0) | (p.button[15] > 0.5f ? 2 : 0) | (p.button[13] > 0.5f ? 4 : 0) |
            (p.button[14] > 0.5f ? 8 : 0);
 }
 
@@ -74,6 +75,13 @@ int ControlBindings::effectiveDevice(const InputState& in) const {
     return d >= 2 && !in.pad.connected ? 1 : d;
 }
 
+int ControlBindings::companionDevice(const InputState& in) const {
+    const int d = effectiveDevice(in);
+    if (d >= 2) return 1;
+    if (!in.pad.connected) return -1;
+    return in.pad.kind == GamepadState::Wheel ? 4 : (in.pad.kind == GamepadState::Joystick ? 2 : 3);
+}
+
 float componentValue(const ControlBinding& b, const InputState& in, float dz, bool analogButtons) {
     if (b.kind == 0) return 0.0f;
     if (b.device == kDevKeyboard) return in.hasFocus && b.component < 256 && in.key[b.component] ? 1.0f : 0.0f;
@@ -116,25 +124,30 @@ float componentValue(const ControlBinding& b, const InputState& in, float dz, bo
 float ControlBindings::value(const InputState& in, int action) const { return componentValue(binding(in, action), in, deadZone); }
 
 bool ControlBindings::usesKey(const InputState& in, uint32_t dik) const {
-    const int d = effectiveDevice(in);
-    for (int a = 0; a < ActionCount; ++a) {
-        const ControlBinding& b = table[d * ActionCount + a];
-        if (b.kind != 0 && b.device == kDevKeyboard && b.component == dik) return true;
+    for (int d : {effectiveDevice(in), companionDevice(in)}) {
+        if (d < 0) continue;
+        for (int a = 0; a < ActionCount; ++a) {
+            const ControlBinding& b = table[d * ActionCount + a];
+            if (b.kind != 0 && b.device == kDevKeyboard && b.component == dik) return true;
+        }
     }
     return false;
 }
 
 bool ControlBindings::usesButton(const InputState& in, int button) const {
-    const int d = effectiveDevice(in);
-    for (int a = 0; a < ActionCount; ++a) {
-        const ControlBinding& b = table[d * ActionCount + a];
-        if (b.kind != 0 && b.device == kDevController && b.component == uint32_t(21 + button)) return true;
+    for (int d : {effectiveDevice(in), companionDevice(in)}) {
+        if (d < 0) continue;
+        for (int a = 0; a < ActionCount; ++a) {
+            const ControlBinding& b = table[d * ActionCount + a];
+            if (b.kind != 0 && b.device == kDevController && b.component == uint32_t(21 + button)) return true;
+        }
     }
     return false;
 }
 
-bool ActionPresses::pressed(const ControlBindings& c, const InputState& in, int action) {
-    const ControlBinding& b = c.binding(in, action);
+bool ActionPresses::pressedOn(const ControlBindings& c, int device, const InputState& in, int action) {
+    if (device < 0 || device > 4) return false;
+    const ControlBinding& b = c.bindingOn(device, action);
     if (b.kind == 0) return false;
     if (b.device == kDevKeyboard) return in.hasFocus && b.component < 256 && in.keyPressed[b.component];
     if (b.device == kDevMouse) return (b.component == 1 && in.clicked[0]) || (b.component == 2 && in.clicked[2]);
@@ -143,7 +156,7 @@ bool ActionPresses::pressed(const ControlBindings& c, const InputState& in, int 
     if (isHalf(b.component)) {
         // Engine choice: the bound half passing 0.75, once until it falls back.
         const float v = componentValue(b, in, c.deadZone);
-        bool& l = latch_[action];
+        bool& l = latch_[device][action];
         if (v > 0.75f && !l) {
             l = true;
             return true;
@@ -336,8 +349,8 @@ float PlayerControls::mouseSteer(float p) const {
 // A pedal 0 … 1 from its binding ("Axis-bound driving actions", "Pedals"): keys and mouse buttons
 // 0 or 1, controller buttons their analog value (our trigger extension), the throttle max(value, 0)
 // and the brake clamp(value, 0, 1) of an axis; an axis bound to the throttle on the gamepad device
-// is never read. Engine choice: a whole axis that rested at one end when the controller was first
-// read (a wheel's separate pedals) reads 0 there and 1 at the other end, without the dead zone.
+// is never read. Engine choice: a whole axis that rests at one end (a wheel's separate pedals, the
+// platform's rest of the axis) reads 0 there and 1 at the other end, without the dead zone.
 float PlayerControls::pedal(const ControlBinding& b, const InputState& in, bool throttle, int device) const {
     if (b.kind == 0) return 0.0f;
     if (b.device == kDevController && in.pad.connected) {
@@ -345,8 +358,8 @@ float PlayerControls::pedal(const ControlBinding& b, const InputState& in, bool 
         if (isButton(c)) return std::clamp(componentValue(b, in, bindings_.deadZone, true), 0.0f, 1.0f);
         if (throttle && device == 3) return 0.0f;
         const int ra = isWholeAxis(c) ? pedalAxis(c) : -1;
-        if (ra >= 0 && restKnown_) {
-            const float r = rest_[ra], a = in.pad.axis[ra];
+        if (ra >= 0) {
+            const float r = in.pad.rest[ra], a = in.pad.axis[ra];
             if (r > 0.5f) return std::clamp((r - a) / (r + 1.0f), 0.0f, 1.0f);
             if (r < -0.5f) return std::clamp((a - r) / (1.0f - r), 0.0f, 1.0f);
         }
@@ -355,32 +368,53 @@ float PlayerControls::pedal(const ControlBinding& b, const InputState& in, bool 
     return throttle ? std::max(v, 0.0f) : std::clamp(v, 0.0f, 1.0f);
 }
 
+float PlayerControls::steerByDevice(int device, const InputState& in, float dt) {
+    const ControlBindings& B = bindings_;
+    const ControlBinding& ax = B.bindingOn(device, ActSteerAxis);
+    if (device == 3) {
+        // Gamepad: the steering axis as the target of the keyboard's smoothing.
+        const float T = componentValue(ax, in, B.deadZone);
+        const float rate = (std::fabs(s_) <= std::fabs(T) && sgn(s_) == sgn(T)) ? deltaOut_ : deltaIn_;
+        const float stepLen = rate * dt;
+        if (s_ < T) s_ = (s_ + stepLen > T) ? T : s_ + stepLen;
+        else if (s_ > T) s_ = (s_ - stepLen < T) ? T : s_ - stepLen;
+        return sgn(s_) * std::pow(std::fabs(s_), filter_);
+    }
+    s_ = 0.0f;
+    if (device == 0) {
+        // Mouse: the pointer's place (a binding of its X axis), no smoothing.
+        const float v = ax.kind != 0 ? componentValue(ax, in, 0.0f) : 0.0f;  // 2p − 1
+        return ax.kind != 0 && ax.device == kDevMouse ? mouseSteer((v + 1.0f) * 0.5f) : std::clamp(v, -1.0f, 1.0f);
+    }
+    // Joystick and wheel: the shaping with the approach mode.
+    return joystickSteer(componentValue(ax, in, B.deadZone), dt, device == 4, B.steerU);
+}
+
 phys::DriverControls PlayerControls::readBound(const InputState& in, float dt, ControlEvents& ev) {
     phys::DriverControls c;
     const ControlBindings& B = bindings_;
     const GamepadState& pad = in.pad;
-    const int dev = B.effectiveDevice(in);
+    const int dev = B.effectiveDevice(in), comp = B.companionDevice(in);
     const bool kb = in.hasFocus;
-    if (!pad.connected) {
-        restKnown_ = false;
-    } else if (!restKnown_) {
-        for (int a = 0; a < 8; ++a) rest_[a] = pad.axis[a];
-        restKnown_ = true;
-    }
-    auto bind = [&](int a) -> const ControlBinding& { return B.table[dev * ActionCount + a]; };
-    auto value = [&](int a) { return componentValue(bind(a), in, B.deadZone); };
-    auto held = [&](int a) { return value(a) > 0.5f; };
+    auto valueOn = [&](int d, int a) { return d >= 0 ? componentValue(B.bindingOn(d, a), in, B.deadZone) : 0.0f; };
+    auto held = [&](int a) { return valueOn(dev, a) > 0.5f || valueOn(comp, a) > 0.5f; };
     auto pressed = [&](int a) { return presses_.pressed(B, in, a); };
+    auto pedalOn = [&](int d, int a, bool throttle) { return d >= 0 ? pedal(B.bindingOn(d, a), in, throttle, d) : 0.0f; };
 
-    // Pedals and handbrake.
-    c.accelerate = pedal(bind(ActThrottle), in, true, dev);
-    c.brake = pedal(bind(ActBrake), in, false, dev);
-    c.handbrake = std::clamp(value(ActHandbrake), 0.0f, 1.0f);
+    // Pedals and handbrake: the device's and the one beside it, whichever gives more.
+    c.accelerate = std::max(pedalOn(dev, ActThrottle, true), pedalOn(comp, ActThrottle, true));
+    c.brake = std::max(pedalOn(dev, ActBrake, false), pedalOn(comp, ActBrake, false));
+    c.handbrake = std::max(std::clamp(valueOn(dev, ActHandbrake), 0.0f, 1.0f), std::clamp(valueOn(comp, ActHandbrake), 0.0f, 1.0f));
 
-    // Steering by the device.
-    if (dev == 1) {
-        // Keyboard: the keys (left wins) through the smoothing with target ±K.
-        const bool left = held(ActSteerLeft), right = held(ActSteerRight);
+    // Steering: a controller beside the keyboard or mouse device while its steering axis is pushed
+    // and no steer key is held; else the steer keys while held (the keyboard's, or the mouse
+    // device's own); else the device's own steering (the keyboard's smoothing back to the centre).
+    const int keys = dev == 0 ? 0 : 1;  // the mouse device's own table has the steer keys too
+    const bool left = valueOn(keys, ActSteerLeft) > 0.5f, right = valueOn(keys, ActSteerRight) > 0.5f;
+    const bool beside = comp >= 2 && valueOn(comp, ActSteerAxis) != 0.0f;  // a controller beside the keyboard or mouse
+    if (beside && !left && !right) {
+        c.steer = steerByDevice(comp, in, dt);
+    } else if (left || right || dev == 1) {
         const float K = B.keyTarget > 0.0f ? B.keyTarget : 1.0f;
         const float T = left ? -K : (right ? K : 0.0f);
         const float rate = (std::fabs(s_) <= std::fabs(T) && sgn(s_) == sgn(T)) ? deltaOut_ : deltaIn_;
@@ -388,27 +422,11 @@ phys::DriverControls PlayerControls::readBound(const InputState& in, float dt, C
         if (s_ < T) s_ = (s_ + stepLen > T) ? T : s_ + stepLen;
         else if (s_ > T) s_ = (s_ - stepLen < T) ? T : s_ - stepLen;
         c.steer = sgn(s_) * std::pow(std::fabs(s_), filter_);
-    } else if (dev == 3) {
-        // Gamepad: the steering axis as the target of the same smoothing.
-        const float T = value(ActSteerAxis);
-        const float rate = (std::fabs(s_) <= std::fabs(T) && sgn(s_) == sgn(T)) ? deltaOut_ : deltaIn_;
-        const float stepLen = rate * dt;
-        if (s_ < T) s_ = (s_ + stepLen > T) ? T : s_ + stepLen;
-        else if (s_ > T) s_ = (s_ - stepLen < T) ? T : s_ - stepLen;
-        c.steer = sgn(s_) * std::pow(std::fabs(s_), filter_);
-    } else if (dev == 0) {
-        // Mouse: the pointer's place (a binding of its X axis), no smoothing.
-        const ControlBinding& ax = bind(ActSteerAxis);
-        const float v = ax.kind != 0 ? componentValue(ax, in, 0.0f) : 0.0f;  // 2p − 1
-        c.steer = ax.kind != 0 && ax.device == kDevMouse ? mouseSteer((v + 1.0f) * 0.5f) : std::clamp(v, -1.0f, 1.0f);
-        s_ = 0.0f;
     } else {
-        // Joystick and wheel: the shaping with the approach mode.
-        c.steer = joystickSteer(value(ActSteerAxis), dt, dev == 4, B.steerU);
-        s_ = 0.0f;
+        c.steer = steerByDevice(dev, in, dt);
     }
 
-    // Press events of the table.
+    // Press events of the tables.
     if (pressed(ActShiftUp)) c.shift = 1;
     if (pressed(ActShiftDown)) c.shift = -1;
     ev.camera = pressed(ActCamera);
@@ -423,7 +441,7 @@ phys::DriverControls PlayerControls::readBound(const InputState& in, float dt, C
     ev.prevWaypoint = pressed(ActPrevWaypoint);
     ev.horn = held(ActHorn);
     ev.leave = kb && in.pressed[KeyEscape];
-    // The engine's own keys beside the table, unless the table uses them: G or the gamepad's Start
+    // The engine's own keys beside the tables, unless they use them: G or the gamepad's Start
     // put the car back on its wheels, Ctrl+B detaches a trailer.
     constexpr uint32_t kG = 0x22, kB = 0x30;
     ev.reset = (kb && in.keyPressed[kG] && !B.usesKey(in, kG)) ||
@@ -431,7 +449,7 @@ phys::DriverControls PlayerControls::readBound(const InputState& in, float dt, C
     ev.detachTrailer = kb && in.keyPressed[kB] && (in.key[0x1D] || in.key[0x9D]) && !B.usesKey(in, kB);
     // Looking around: the look actions and the look-around axis (clamp(value, 0, 1), the hat's
     // directions).
-    const int around = lookOf(std::clamp(value(ActLookAxis), 0.0f, 1.0f));
+    const int around = lookOf(std::clamp(valueOn(dev, ActLookAxis), 0.0f, 1.0f)) | lookOf(std::clamp(valueOn(comp, ActLookAxis), 0.0f, 1.0f));
     const bool lookL = held(ActLookLeft) || (around & 1), lookR = held(ActLookRight) || (around & 2);
     const bool lookB = held(ActLookBack) || (around & 4), lookF = held(ActLookForward) || (around & 8);
     int look = 0;

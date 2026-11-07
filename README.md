@@ -352,6 +352,15 @@ Emscripten's SDL3 port built from the same source, so both share `platform/platf
   (friction, centring spring, rumble and jolts) on a
   joystick or wheel that reports it, with the driver's option on, never on a gamepad. The viewer's
   Drive mode keeps the engine's own keys.
+- **Every controller:** every controller connected, at start-up or plugged in later, drives player 1:
+  they are merged into the one controller MM2 knows (a button held on any, each axis from the
+  controller pushing it furthest from where it rests, the hat from any), unplugging one leaves the
+  others driving, and force feedback goes to every joystick or wheel that reports it. The keyboard
+  keeps working beside a controller device (its pedals, buttons and steer keys), and a connected
+  controller beside the keyboard or mouse device (by its kind's table). The default bindings'
+  button count is the most buttons any connected controller has had (engine choices).
+- **Exit:** every way out (Ctrl+Q, the window closing, the self-test, errors) ends the game, saves,
+  releases the GPU objects, then the GL context, the window and SDL before `main` returns.
 - **Testing:** the command line can still start a game straight away, through the front end: `--city
   sf --mode checkpoint --race 3 --car vpbug --paint 1 --skill pro` (`--list
   cities|races|cars|drivers|controls`, `--help`); `--overlay` (or F1) shows the debug text overlay.
@@ -360,8 +369,10 @@ Emscripten's SDL3 port built from the same source, so both share `platform/platf
   video driver, an EGL pbuffer; dummy audio): it imports the profiles, draws the main menu, drives
   Cruise and a race through the front end, writes `build/native/selftest_menu.png`, `selftest.png`
   and `selftest_race.png`, checks the audio output, and drives every control device through the
-  binding table (virtual gamepad, wheel with force feedback recorded, joystick, injected mouse and
-  keys); it exits non-zero on a failure.
+  binding table: two virtual gamepads (one silent, one unplugged mid-game), the keyboard beside
+  them, a force-feedback wheel plugged in mid-game with separate pedals and a second one, the
+  joystick's approach mode, injected mouse and keys (real controllers are left alone); it exits
+  non-zero on a failure.
 - **Release:** `./build.sh appimage-native` makes
   `work/release/CrazyCity_Insanity-native-<version>-x86_64.AppImage` (the program, the FluidR3 bank,
   the licences, `packaging/linux/` desktop entry and icon; no MM2 files) with the AppImage tool and

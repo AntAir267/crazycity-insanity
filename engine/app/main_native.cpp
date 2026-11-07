@@ -278,6 +278,7 @@ int modeNumber(const std::string& m) {
 // The program's state
 
 struct Native {
+    bool saveOnExit = false;  // the main loop ran: save the window state and settings at the end
     Options opt;
     std::string configDir, dataDir, playersDir, exeDir, mm2;
     native::Settings cfg;
@@ -1046,10 +1047,13 @@ bool selfTestCapture(Native& n, const std::string& path, int frames, AudioCheck&
     return varied;
 }
 
-// Controls through the driver's binding table (controls.md), with SDL's virtual joystick driver
-// (no real device is touched; force feedback recorded, not played) and injected key and mouse
-// events. Each part starts the Cruise game again with the changed options; real-time frames, so
-// the platform polls the devices.
+// Controls through the driver's binding table (controls.md) and every controller merged into one
+// (the shared game goals), with SDL's virtual joystick driver (no real device is touched; force
+// feedback recorded, not played) and injected key and mouse events: two gamepads from the start
+// (one silent), one unplugged mid-game, the keyboard beside the gamepad device, a force-feedback
+// wheel plugged in mid-game with separate pedals, a second force-feedback wheel, the joystick's
+// approach mode, the mouse device, the keyboard device. Real-time frames, so the platform polls
+// the devices and hears them come and go.
 void selfTestControllers(Native& n, const std::function<void(bool, const std::string&)>& check) {
     App& app = theApp();
     Platform& p = *n.platform;
@@ -1066,79 +1070,116 @@ void selfTestControllers(Native& n, const std::function<void(bool, const std::st
         std::string why;
         return startGame(n, why);
     };
-    auto has = [](const std::vector<std::string>& log, const std::string& prefix) {
-        for (const std::string& l : log)
-            if (l.compare(0, prefix.size(), prefix) == 0) return true;
-        return false;
+    auto tagsWith = [](const std::vector<std::string>& log, const std::string& command) {
+        std::vector<std::string> tags;
+        for (const std::string& l : log) {
+            const size_t sp = l.find(' ');
+            if (sp == std::string::npos || l.compare(sp + 1, command.size(), command) != 0) continue;
+            const std::string t = l.substr(0, sp);
+            if (std::find(tags.begin(), tags.end(), t) == tags.end()) tags.push_back(t);
+        }
+        return tags;
     };
-    auto firstValue = [](const std::vector<std::string>& log, const std::string& prefix) {
-        for (const std::string& l : log)
-            if (l.compare(0, prefix.size(), prefix) == 0) return std::atoi(l.c_str() + prefix.size());
+    auto firstValue = [](const std::vector<std::string>& log, const std::string& command) {
+        for (const std::string& l : log) {
+            const size_t at = l.find(" " + command + " ");
+            if (at != std::string::npos) return std::atoi(l.c_str() + at + command.size() + 2);
+        }
         return -1;
     };
     cc_ui_set_option("forceFeedback", 1);
 
-    // The gamepad device (the shipped player0.cfg's choice): button 1, the stick; a gamepad that
-    // reports force feedback still gets none (MM2 has no gamepad force feedback).
+    // Two gamepads from the start, A silent: B drives (button 1, the stick); a gamepad gets no
+    // force feedback (MM2 has none).
     cc_ui_set_option("controlDevice", 3);
-    if (!p.openTestController(false, true) || !restart()) {
-        check(false, "a virtual gamepad could be attached");
+    const int padA = p.addTestController(false), padB = p.addTestController(false);
+    if (!padA || !padB || !restart()) {
+        check(false, "two virtual gamepads could be attached");
         return;
     }
-    p.setTestButton(0, true);  // A: button 1, the throttle
-    p.setTestAxis(0, -1.0f);   // left stick X: the steering axis
+    p.setTestButton(padB, 0, true);  // A: button 1, the throttle
+    p.setTestAxis(padB, 0, -1.0f);   // left stick X: the steering axis
     JsonValue d = drive(1.0);
-    check(d["throttle"].num() > 0.9 && d["steer"].num() < -0.3,
-          strf("gamepad device (%s): button 1 and the stick left give throttle %.2f, steering %.2f", p.controllerName().c_str(),
+    check(p.controllerCount() == 2 && d["throttle"].num() > 0.9 && d["steer"].num() < -0.3,
+          strf("two gamepads merged (%d connected), the second one driving: throttle %.2f, steering %.2f", p.controllerCount(),
                d["throttle"].num(), d["steer"].num()));
     check(p.takeTestHapticLog().empty(), "gamepad device: no force feedback");
+    // B unplugged mid-game: A drives on.
+    p.removeTestController(padB);
+    p.setTestButton(padA, 0, true);
+    p.setTestAxis(padA, 0, 1.0f);
+    d = drive(1.0);
+    check(p.controllerCount() == 1 && d["throttle"].num() > 0.9 && d["steer"].num() > 0.3,
+          strf("after unplugging one, the other gamepad drives (%d connected): throttle %.2f, steering %.2f", p.controllerCount(),
+               d["throttle"].num(), d["steer"].num()));
+    p.setTestButton(padA, 0, false);
+    p.setTestAxis(padA, 0, 0.0f);
+    drive(0.5);
+    // The keyboard beside the gamepad device.
+    p.injectKey(82, true);  // SDL_SCANCODE_UP
+    p.injectKey(80, true);  // SDL_SCANCODE_LEFT
+    d = drive(1.0);
+    p.injectKey(82, false);
+    p.injectKey(80, false);
+    check(d["throttle"].num() > 0.9 && d["steer"].num() < -0.3,
+          strf("the keyboard beside the gamepad device: Up and Left give throttle %.2f, steering %.2f", d["throttle"].num(),
+               d["steer"].num()));
 
-    // The wheel device with a modern wheel's separate pedals (throttle = Z axis, brake = R axis,
-    // resting at +1) and force feedback.
+    // A force-feedback wheel plugged in mid-game, separate pedals (throttle = Z axis, brake = R
+    // axis, resting at +1); the wheel device.
     cc_ui_set_option("controlDevice", 4);
     cc_ui_set_binding(4, 8, 2, 4, 12);
     cc_ui_set_binding(4, 9, 2, 4, 14);
-    if (!p.openTestController(true, true)) {
-        check(false, "a virtual wheel could be attached");
-        return;
-    }
-    p.setTestAxis(2, 1.0f);
-    p.setTestAxis(3, 1.0f);
+    const int wheel = p.addTestController(true, true);
+    p.setTestAxis(wheel, 2, 1.0f);
+    p.setTestAxis(wheel, 3, 1.0f);
+    drive(0.3);
+    const int joined = p.controllerCount();
     restart();
     d = drive(0.3);
-    const double idle = d["throttle"].num();
-    p.setTestAxis(2, -1.0f);  // throttle pedal down
-    p.setTestAxis(0, 1.0f);   // wheel right
+    const double idle = d["throttle"].num(), idleBrake = d["brake"].num();
+    p.setTestAxis(wheel, 2, -1.0f);  // throttle pedal down
+    p.setTestAxis(wheel, 0, 1.0f);   // wheel right
     d = drive(1.0);
-    check(idle < 0.05 && d["throttle"].num() > 0.9 && d["brake"].num() < 0.05 && d["steer"].num() > 0.3,
-          strf("wheel device (%s), pedals on Z and R: throttle %.2f at rest, %.2f pressed, brake %.2f, steering %.2f",
-               p.controllerName().c_str(), idle, d["throttle"].num(), d["brake"].num(), d["steer"].num()));
+    check(joined == 2 && idle < 0.05 && idleBrake < 0.05 && d["throttle"].num() > 0.9 && d["brake"].num() < 0.05 &&
+              d["steer"].num() > 0.3,
+          strf("a wheel plugged in mid-game joins (%d connected), pedals on Z and R: throttle %.2f / brake %.2f at rest, "
+               "throttle %.2f pressed, steering %.2f",
+               joined, idle, idleBrake, d["throttle"].num(), d["steer"].num()));
     std::vector<std::string> log = p.takeTestHapticLog();
-    const int fr = firstValue(log, "friction ");
-    check(has(log, "start friction") && has(log, "start spring") && fr > 0 && fr <= 7000,
+    const int fr = firstValue(log, "friction");
+    check(!tagsWith(log, "start friction").empty() && !tagsWith(log, "start spring").empty() && fr > 0 && fr <= 7000,
           strf("wheel force feedback: friction and spring play, friction %d (0.7 x the tyre's surface friction)", fr));
+    // A second force-feedback wheel: the effects go to both.
+    const int wheel2 = p.addTestController(true, true);
+    drive(0.3);
     cc_game_pause(1);  // the Esc menu: a pop-up, then the reset every paused frame
     drive(0.2);
     log = p.takeTestHapticLog();
-    check(has(log, "stop spring") && has(log, "stop friction") && has(log, "start friction"),
-          strf("wheel force feedback in the pause menu: stopped, then friction and spring again (%d commands)", int(log.size())));
+    const std::vector<std::string> both = tagsWith(log, "start friction");
+    check(p.controllerCount() == 3 && both.size() >= 2 && !tagsWith(log, "stop spring").empty(),
+          strf("force feedback on every wheel (%d with friction) in the pause menu: stopped, then friction and spring again",
+               int(both.size())));
     cc_game_pause(0);
-    p.setTestAxis(0, 0.0f);
-    p.setTestAxis(2, 1.0f);
+    p.removeTestController(wheel2);
+    p.setTestAxis(wheel, 0, 0.0f);
+    p.setTestAxis(wheel, 2, 1.0f);
 
     // The joystick device: the shaping, and the approach mode in the stick's last 1 %.
     cc_ui_set_option("controlDevice", 2);
     restart();
-    p.setTestAxis(0, 0.5f);
+    p.setTestAxis(wheel, 0, 0.5f);
     d = drive(0.5);
     const double half = d["steer"].num();
-    p.setTestAxis(0, 1.0f);
+    p.setTestAxis(wheel, 0, 1.0f);
     JsonValue d1 = drive(0.05);
     d = drive(1.0);
     check(half > 0.0 && half < 0.6 && d["steer"].num() > 0.95,
           strf("joystick device: stick at 0.5 steers %.2f; held at full it ramps from %.2f to %.2f (approach mode)", half,
                d1["steer"].num(), d["steer"].num()));
-    p.closeTestController();
+    p.removeTestController(wheel);
+    p.removeTestController(padA);
+    drive(0.2);
     p.takeTestHapticLog();
 
     // The mouse device: the pointer at the right edge, the left button the throttle.
@@ -1156,8 +1197,8 @@ void selfTestControllers(Native& n, const std::function<void(bool, const std::st
     // The keyboard device: the arrow keys of MM2's table.
     cc_ui_set_option("controlDevice", 1);
     restart();
-    p.injectKey(82, true);  // SDL_SCANCODE_UP
-    p.injectKey(80, true);  // SDL_SCANCODE_LEFT
+    p.injectKey(82, true);
+    p.injectKey(80, true);
     d = drive(1.0);
     p.injectKey(82, false);
     p.injectKey(80, false);
@@ -1293,6 +1334,30 @@ int runSelfTest(Native& n) {
 
 }  // namespace
 
+// The one way out once the engine has started (Ctrl+Q, Q in the pause menu, the window closed,
+// --quit-after, the self-test, every error after start-up): the game ends (its view bytes into the
+// driver's .cfg), a network session is left, the settings are saved, the app releases its GPU
+// objects, then the GL context, the window and SDL go, all before main returns, so no static
+// destructor does any GL work.
+int finish(Native& n, int rc) {
+    App& app = theApp();
+    endGame(n);
+    if (n.net) {
+        app.netEnd();  // leaves the session (a host's "host quits" first)
+        for (int i = 0; i < 5; ++i) Platform::delay(0.01);
+        app.netStopLocalServer();
+        n.net = false;
+    }
+    if (n.platform && n.saveOnExit) {
+        saveWindowState(n);
+        if (n.cfg.dirty()) n.cfg.save();
+    }
+    app.shutdown();
+    if (n.platform) n.platform->shutdown();
+    Platform::finalQuit();
+    return rc;
+}
+
 int main(int argc, char** argv) {
     // `crazycity --server`: only the session server (platform/host_server.*), no window.
     for (int i = 1; i < argc; ++i)
@@ -1344,8 +1409,8 @@ int main(int argc, char** argv) {
     pc.audio = !n.opt.noAudio && !listing;
     pc.audioDriver = n.opt.audioDriver.empty() && selftest ? "dummy" : n.opt.audioDriver;
     pc.controllers = !n.opt.noPad && !listing;
+    pc.testControllersOnly = selftest;  // the self-test's virtual controllers only, never the player's
     Platform::configure(pc);
-    std::atexit(Platform::finalQuit);  // before the app (a static) is made: it runs after the app is gone
 
     // The engine UI's hooks: the drivers as files in <data>/players/, the menus' settings in
     // native.cfg, the system's dialogs (shown between frames) and clipboard.
@@ -1362,11 +1427,13 @@ int main(int argc, char** argv) {
         if (what == ui::Pick::HeldPlayers) return !playersFolderOf(n.mm2).empty();
         return what != ui::Pick::DevPlayers;
     };
-    theApp().setHost(&n.host);  // (the app is made here, after finalQuit is registered)
+    theApp().setHost(&n.host);
 
     App& app = theApp();
     if (!app.init()) {
         std::fprintf(stderr, "the engine could not start (OpenGL ES 3.0 is needed)\n");
+        app.shutdown();
+        Platform::finalQuit();
         return 1;
     }
     n.platform = app.context().platform;
@@ -1387,8 +1454,7 @@ int main(int argc, char** argv) {
             n.platform->message(kTitle, "CrazyCity Insanity needs your Midtown Madness 2 folder (the one with mm2core.ar).\n"
                                         "Start it again and pick that folder, or give it with --mm2 DIR.", true);
         std::fprintf(stderr, "no Midtown Madness 2 folder (give it with --mm2 DIR)\n");
-        n.platform->shutdown();
-        return 1;
+        return finish(n, 1);
     }
     if (!selftest && !listing) {
         n.cfg.set("mm2_folder", n.mm2);
@@ -1402,8 +1468,7 @@ int main(int argc, char** argv) {
     loadStrings(n);
     if (!mountFolder(n)) {
         n.platform->message(kTitle, "The game data in " + n.mm2 + " could not be read (no cars or cities).", true);
-        n.platform->shutdown();
-        return 1;
+        return finish(n, 1);
     }
     loadGmBanks(n);
     if (!haveDrivers || n.opt.importPlayers) {
@@ -1413,14 +1478,12 @@ int main(int argc, char** argv) {
     JsonValue state = parseJson(cc_ui_state());
     state = chooseDriver(n, state);
     if (!applyControlOptions(n, state)) {
-        n.platform->shutdown();
-        return 2;
+        return finish(n, 2);
     }
     if (frontEnd()) frontEnd()->profilesChanged();
     if (listing) {
         listThings(n.opt.list, state);
-        n.platform->shutdown();
-        return 0;
+        return finish(n, 0);
     }
 
     // What to play: the command line, else the driver's last city, car and paint.
@@ -1428,29 +1491,25 @@ int main(int argc, char** argv) {
     n.cityIndex = findCity(n.opt.city, d["city"].str("sf"));
     if (n.cityIndex < 0) {
         std::fprintf(stderr, "no city %s (see --list cities)\n", n.opt.city.c_str());
-        n.platform->shutdown();
-        return 2;
+        return finish(n, 2);
     }
     n.carIndex = findCar(n.opt.car, d["car"].str());
     if (n.carIndex < 0) {
         std::fprintf(stderr, "no car %s (see --list cars)\n", n.opt.car.c_str());
-        n.platform->shutdown();
-        return 2;
+        return finish(n, 2);
     }
     n.paint = n.opt.paint >= 0 ? n.opt.paint : (n.opt.car.empty() ? d["paint"].integer(0) : 0);
     n.mode = modeNumber(n.opt.mode);
     if (n.mode < 0) {
         std::fprintf(stderr, "no mode %s (cruise, checkpoint, circuit, blitz or crash)\n", n.opt.mode.c_str());
-        n.platform->shutdown();
-        return 2;
+        return finish(n, 2);
     }
     n.race = std::max(0, n.opt.race - 1);
     if (n.platform->openAudio(app.audioRate())) n.platform->setAudioGain(float(std::clamp(n.opt.volume, 0, 100)) / 100.0f);
 
     if (selftest) {
         const int rc = runSelfTest(n);
-        n.platform->shutdown();
-        return rc;
+        return finish(n, rc);
     }
 
     // The menus; for testing, the command line's game or network game straight away.
@@ -1460,8 +1519,7 @@ int main(int argc, char** argv) {
         if (!startNetwork(n, state, why)) {
             std::fprintf(stderr, "network: %s\n", why.c_str());
             n.platform->message(kTitle, "The network game could not start: " + why, true);
-            n.platform->shutdown();
-            return 1;
+            return finish(n, 1);
         }
         if (frontEnd()) frontEnd()->openScreen("mp");  // the lobby, as the Multiplayer screen shows it
     } else if (n.opt.startGame) {
@@ -1475,6 +1533,7 @@ int main(int argc, char** argv) {
     // is minimised, as a hidden page gets no frames; the audio stream is topped up between frames.
     bool running = true;
     bool wasMinimized = false;
+    n.saveOnExit = true;  // the window state and native.cfg are saved when the game ends
     double last = n.platform->timeSeconds();
     const double started = last;
     long frames = 0;
@@ -1525,14 +1584,5 @@ int main(int argc, char** argv) {
         const double t = n.platform->timeSeconds() - started;
         std::fprintf(stderr, "%ld frames in %.1f s (%.1f per second)\n", frames, t, t > 0 ? double(frames) / t : 0.0);
     }
-    endGame(n);
-    if (n.net) {
-        app.netEnd();  // leaves the session (a host's "host quits" first)
-        for (int i = 0; i < 5; ++i) Platform::delay(0.01);
-        app.netStopLocalServer();
-    }
-    saveWindowState(n);
-    if (n.cfg.dirty()) n.cfg.save();
-    n.platform->shutdown();
-    return 0;
+    return finish(n, 0);
 }

@@ -45,6 +45,21 @@ App::~App() {
     netSession_.reset();
 }
 
+void App::shutdown() {
+    if (!ready_) return;
+    ready_ = false;
+    fe_.reset();
+    driveView_.stop();
+    music_.setFileReader(nullptr);
+    carView_.clear();
+    cityView_.unload(ctx_);
+    meshes_.clear();
+    if (textures_) textures_->clear();
+    if (uiOk_) uiGl_.shutdown();
+    uiOk_ = false;
+    renderer_.shutdown();
+}
+
 void App::setHost(ui::Host* h) {
     host_ = h ? h : &defaultHost_;
     ui_.setHost(host_);
@@ -147,6 +162,13 @@ void App::frame() {
     if (!ready_) return;
     if (fixedDt_ < 0.0f) platform_.pollEvents(input_);
     else input_.beginFrame();
+    // The binding defaults' button count (controls.md, "Button count for the default bindings";
+    // engine choice for merged controllers): the most buttons any connected controller has had,
+    // so one plugged in later counts too.
+    if (input_.pad.connected && input_.pad.buttonCount > padButtons_) {
+        padButtons_ = input_.pad.buttonCount;
+        menu::setControllerButtons(gamepadButtons());
+    }
     for (const ui::InputEvent& e : pendingUiEvents_) input_.events.push_back(e);
     pendingUiEvents_.clear();
     double now = platform_.timeSeconds();
