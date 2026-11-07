@@ -56,14 +56,19 @@ void Ui::beginFrame(const FrameInput& in) {
     keysFree_.clear();
     textEvents_.clear();
     events_ = in.events;
+    sceneKeys_ = in.sceneKeys;
     {
         auto it = interactiveLast_.find(focus_);
         focusIsText_ = focus_ && it != interactiveLast_.end() && (it->second & InteractText);
         focusFlags_ = it != interactiveLast_.end() ? it->second : 0;
     }
     for (const InputEvent& e : in.events) handleEvent(e);
-    // Gamepad: d-pad and left stick move the focus (with repeat), A activates, B goes back.
-    if (in.padConnected) {
+    // Gamepad: d-pad and left stick move the focus (with repeat), A activates, B goes back; not
+    // while the controller drives.
+    if (in.padConnected && sceneKeys_) {
+        for (int b = 0; b < 17; ++b) padHeldPrev_[b] = in.padHeld[b];
+        for (float& r : padRepeat_) r = 0;
+    } else if (in.padConnected) {
         const float ax = in.padAxis[0], ay = in.padAxis[1];
         bool dir[4] = {in.padHeld[12] || ay < -0.6f, in.padHeld[13] || ay > 0.6f, in.padHeld[14] || ax < -0.6f,
                        in.padHeld[15] || ax > 0.6f};
@@ -395,6 +400,12 @@ void Ui::handleEvent(const InputEvent& e) {
                     break;
                 }
                 break;  // printable keys arrive as Text
+            }
+            if (sceneKeys_) {
+                // The keys drive: nothing in the UI moves or is pressed by them.
+                if (e.key == Key::Escape) backPressed_ = true;
+                else keysFree_.push_back({e.key, e.mods});
+                break;
             }
             switch (e.key) {
                 case Key::Escape: backPressed_ = true; break;

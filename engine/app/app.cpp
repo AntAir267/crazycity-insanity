@@ -142,6 +142,7 @@ void App::uiFrame(int w, int h, float dt) {
     fi.padConnected = input_.pad.connected;
     for (int b = 0; b < 17; ++b) fi.padHeld[b] = input_.pad.button[b] > 0.5f;
     for (int a = 0; a < 4; ++a) fi.padAxis[a] = input_.pad.axis[a];
+    fi.sceneKeys = uiSceneKeys_;
     ui_.beginFrame(fi);
     if (fe_) {
         // The engine's events since the last frame (pause, HUD, race, network).
@@ -197,6 +198,8 @@ void App::frame() {
     // Whether the 3D views get this frame's keys is decided before the UI uses them (an Esc that
     // closes a menu must not reach the drive as well).
     const bool viewKeys = !fe_ || fe_->viewsGetKeys(ui_);
+    // While a drive has them, the keys and the controller do not also move or press the UI.
+    uiSceneKeys_ = viewKeys && driveView_.active();
     // The UI first (input, the screens, layout); it is drawn over the 3D view below.
     uiFrame(w, h, dt);
     // The 3D view in its part of the window, with the input the UI leaves to it.

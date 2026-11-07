@@ -1049,6 +1049,30 @@ void FrontEnd::frame(Ui& ui) {
     ui_ = &ui;
     dim_ = false;
     if (resetCameraIn_ > 0 && --resetCameraIn_ == 0) svc_.resetCamera();
+    // A drive started outside the menus (the page's or a test's cc_start_drive) is the viewer's
+    // Drive mode: the menus close over it, and it has the keys.
+    if (ready_ && !inGame_ && !v_.driving && !pendingStart_ && svc_.driving() && !svc_.netDriving()) {
+        if (play_) {
+            // Back to the viewer, without the view switch that would stop the drive.
+            mpRelease();
+            renderedScreen_.clear();
+            play_ = false;
+            dim_ = false;
+            if (!viewerRestored_) restoreViewerState();  // (the first time: the stored settings only)
+            restoreViewerOptions();
+            restoreViewerAudio();
+        }
+        if (v_.tab != "net") {
+            v_.tab = "city";  // the drive's card (Stop driving)
+            v_.view = 1;
+        }
+        setDriving(true);
+        sceneFocus_ = true;
+    }
+    // The viewer's camera keys follow the pointer: a press on the 3D view gives them to it, a
+    // press on the panel takes them back (a drive keeps its keys either way).
+    for (const InputEvent& e : ui.events())
+        if (e.type == InputEvent::MouseDown || e.type == InputEvent::TouchDown) sceneFocus_ = !ui.wantsPointer();
     viewerTick();
     netFrame();
     if (pendingStart_ && ++loadFrames_ >= 3) doStart();
@@ -1132,11 +1156,16 @@ ui::Rect FrontEnd::sceneRect(int w, int h, float scale) const {
     return Rect{pw, 0, float(w) - pw, float(h)};
 }
 
+// The keys (and the controller) drive whenever no menu or text field has them: a text field, a
+// dialog, the loading screen, a pause menu, the network chat or the front end's menu screens keep
+// them; otherwise a drive (the viewer's or a game) gets them, and without a drive the viewer's
+// camera does once the 3D view was clicked.
 bool FrontEnd::viewsGetKeys(const Ui& ui) const {
     if (ui.wantsKeyboard() || modal_ != Modal::None || loading_) return false;
     if (pause_ != Pause::None) return false;
     if (mp_.chatOpen) return false;
     if (play_ && !inGame_) return false;  // the front end's menus have the keyboard
+    if (svc_.driving()) return true;
     return sceneFocus_;
 }
 

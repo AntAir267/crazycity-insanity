@@ -261,6 +261,7 @@ private:
     ui::GlBackend uiGl_;
     int padButtons_ = 0;  // the most buttons any connected controller has had
     bool uiOk_ = false;
+    bool uiSceneKeys_ = false;  // this frame's keys and controller go to the views (ui::FrameInput)
     std::unique_ptr<fe::Services> feServices_;
     std::unique_ptr<fe::FrontEnd> fe_;
     std::vector<ui::InputEvent> pendingUiEvents_;

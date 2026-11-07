@@ -204,6 +204,10 @@ struct FrameInput {
     bool padConnected = false;
     bool padHeld[17] = {};
     float padAxis[4] = {};
+    // The 3D view has the keyboard and the game controller (a drive or a game): keys and the pad
+    // neither move the focus nor press the focused control (text fields still edit; Esc still
+    // counts as back).
+    bool sceneKeys = false;
 };
 
 class Ui {
@@ -386,6 +390,7 @@ private:
     Id lastClickId_ = 0;
     double lastClickTime_ = 0;
     bool backPressed_ = false;
+    bool sceneKeys_ = false;
     bool padPressed_[int(Pad::Count)] = {};
     bool usingPad_ = false;
     std::vector<std::pair<Key, uint8_t>> keysFree_;

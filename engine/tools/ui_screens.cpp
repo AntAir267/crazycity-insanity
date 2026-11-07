@@ -94,7 +94,7 @@ public:
     void setLod(int) override {}
     void setCarOption(const std::string&, int) override {}
     void resetCamera() override {}
-    void setView(int) override {}
+    void setView(int) override { drivingNow = false; }  // as the App: a view switch ends a drive
     std::string loadCity(int) override { return "{\"loaded\":true}"; }
     void setCityOption(const std::string&, int) override {}
     std::string dropCar() override { return "{\"ok\":true}"; }
@@ -637,6 +637,57 @@ int cmdUiScreens(const std::string& gameDir, const std::string& outDir, const st
         r.fe->testQuit("race");
         r.frames(2);
         r.check(!r.fe->inGame() && r.fe->screenName() == "race", "leaving the game: the race menu (" + r.fe->screenName() + ")");
+    }
+
+    std::printf("== Keys while driving\n");
+    {
+        // A drive started outside the menus (the page's cc_start_drive) while they are open.
+        r.key(Key::Escape);
+        r.fe->openFrontEnd();
+        r.frames(3);
+        r.check(r.fe->inPlay() && !r.fe->viewsGetKeys(r.ui), "the menus have the keys while no drive runs");
+        r.svc.drivingNow = true;
+        r.frames(3);
+        r.check(!r.fe->inPlay() && r.svc.drivingNow && r.fe->viewsGetKeys(r.ui),
+                "a drive started outside the menus: the viewer's drive (still running), with the keys");
+        // (A text field taking the keys from a drive, the viewer's network panel, is checked in the page:
+        // this program has no network link.)
+        r.svc.drivingNow = false;
+        r.fe->onEngineEvent("drive", "{\"active\":false}");
+        r.frames(2);
+        // The UI does not move or press anything with keys the drive has.
+        Ui ui;
+        double t = 0;
+        int clicks = 0;
+        for (int f = 0; f < 4; ++f) {
+            FrameInput fi;
+            fi.width = 400;
+            fi.height = 200;
+            fi.scale = 1;
+            fi.time = t;
+            fi.dt = 1.0f / 60.0f;
+            fi.sceneKeys = f >= 1;
+            if (f >= 1) {
+                InputEvent e;
+                e.type = InputEvent::KeyDown;
+                e.key = f == 1 ? Key::Space : f == 2 ? Key::Enter : Key::Down;
+                fi.events.push_back(e);
+            }
+            ui.beginFrame(fi);
+            Style s;
+            s.column();
+            ui.open("root", s);
+            if (fe::button(ui, "a", "First")) ++clicks;
+            fe::button(ui, "b", "Second");
+            if (f == 0) ui.setFocus(ui.id("a"), true);
+            ui.close();
+            ui.endFrame();
+            t += 1.0 / 60.0;
+        }
+        r.check(clicks == 0, "Space and Enter for the drive press no focused button");
+        r.check(ui.isFocused(ui.id("a")), "and the arrows do not move the focus");
+        r.fe->openFrontEnd();  // back to the menus for the rest
+        r.frames(3);
     }
 
     std::printf("== Window sizes\n");

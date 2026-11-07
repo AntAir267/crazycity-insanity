@@ -1205,6 +1205,24 @@ void selfTestControllers(Native& n, const std::function<void(bool, const std::st
     check(d["throttle"].num() > 0.9 && d["steer"].num() < -0.3,
           strf("keyboard device: Up and Left give throttle %.2f, steering %.2f", d["throttle"].num(), d["steer"].num()));
     cc_ui_set_option("controlDevice", 3);
+
+    // The viewer's Drive mode started outside the menus while they are open (as the page's
+    // cc_start_drive): the menus close and the drive has the keys.
+    endGame(n);
+    if (fe::FrontEnd* fe = frontEnd()) {
+        fe->openFrontEnd();
+        drive(0.1);
+        const JsonValue r = parseJson(app.startDrive(0, false));
+        p.injectKey(82, true);  // Up
+        d = drive(1.0);
+        p.injectKey(82, false);
+        check(r["ok"].boolean() && !fe->inPlay() && d["throttle"].num() > 0.9,
+              strf("a viewer drive started with the menus open: menus closed %s, Up gives throttle %.2f", fe->inPlay() ? "no" : "yes",
+                   d["throttle"].num()));
+        app.stopDrive();
+        drive(0.1);
+        fe->openFrontEnd();
+    }
 }
 
 int runSelfTest(Native& n) {

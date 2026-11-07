@@ -107,7 +107,10 @@ The default keys are MM2's: **arrow keys** drive (Down brakes, and reverses when
 automatic/manual gearbox, **A**/**Z** shift up/down, **R** reverse, **Tab** map, **Q** full-screen
 map, **Backspace** mirror, **S**/**X** next/previous waypoint, **Esc** pause menu. Options ›
 Controls picks the device (keyboard, mouse, gamepad, joystick or wheel) and Customise controls
-changes every binding, as in MM2. In the native game F11 or Alt+Enter switches full screen.
+changes every binding, as in MM2. The keys and the game controller drive whenever no menu or text
+field has them, in a game and in the viewer's Drive mode alike; without a drive, the viewer's
+camera takes the keys once you click the 3D view (clicking the panel gives them back to it). In the
+native game F11 or Alt+Enter switches full screen.
 
 ## Licence
 
